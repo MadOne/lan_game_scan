@@ -4,5 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-gamedig = "0.6.1"
-tokio = { version = "1.44.1", features=["full"] }
+gamedig = "0.7.0"
+tokio = { version = "1.44.1", features = ["full"] }
+gira_iot_api = { path = "../gira_iot_api/", optional = true }
+rusqlite = { version = "0.36.0", features = ["bundled"] }
+directories = "6.0.0"
