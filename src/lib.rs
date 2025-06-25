@@ -19,7 +19,7 @@ use udp_sender::UdpSender;
 
 use crate::db::Db;
 
-pub async fn create_scaner() -> Arc<Mutex<Receiver<Server>>> {
+async fn create_scaner() -> Arc<Mutex<Receiver<Server>>> {
     let socket = UdpSocket::bind("0.0.0.0:34153").await.unwrap();
     let udp_sender_socket = Arc::new(socket);
     let udp_reciever_socket = udp_sender_socket.clone();
