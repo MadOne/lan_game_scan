@@ -1,12 +1,13 @@
 use std::{fs, path::PathBuf};
 
-use lan_game_scan::{create_scaner, Server};
+use lan_game_scan::{create_scaner, server::Server, start};
 use rusqlite::{Connection, Result};
 extern crate directories;
 use directories::ProjectDirs;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    /*
     // open or create db
 
     // get OS Path for data
@@ -92,4 +93,8 @@ async fn main() -> Result<()> {
             }
         }
     }
+    */
+    start().await;
+    loop {}
+    Ok(())
 }
