@@ -1,0 +1,25 @@
+[application]
+# The name of your project
+name = "serverbrowser"
+# The input tailwind file
+tailwind_input = "input.css"
+
+[web.app]
+
+# HTML title tag content
+title = "serverbrowser"
+
+# include `assets` in web platform
+[web.resource]
+
+# Additional CSS style files
+style = []
+
+# Additional JavaScript files
+script = []
+
+[web.resource.dev]
+
+# Javascript code file
+# serve: [dev-server] only
+script = []

@@ -1,0 +1,259 @@
+RCON architecture — final structure
+
+The goal is:
+
+RconSession is the single source of truth for one server/RCON connection.
+
+It owns the connection, the live-log instance, all session state, and all operations belonging to that server.
+
+The UI only consumes its state and calls its methods.
+
+File structure
+custom_components/rcon/
+│
+├── mod.rs
+│
+├── session.rs
+│   └── RconSession
+│       ├── state
+│       ├── RconClient
+│       ├── LiveLog instance
+│       ├── connect()
+│       ├── disconnect()
+│       ├── execute()
+│       ├── process_log()
+│       ├── push_log()
+│       ├── pause()
+│       ├── unpause()
+│       └── other session operations
+│
+├── connection.rs
+│   └── low-level RCON connection/background handling
+│
+├── players.rs
+│   └── RconPlayers + player parsing/updating
+│
+└── ui/
+    ├── mod.rs
+    ├── console.rs
+    │   └── session selection + tabs + login UI
+    │
+    ├── overview.rs
+    │   └── scoreboard + server controls
+    │
+    ├── chat.rs
+    │   └── chat display
+    │
+    └── terminal.rs
+        └── terminal + filters + command input
+
+commands.rs is not necessarily needed anymore. If a function is fundamentally an operation on a session, it belongs in impl RconSession.
+
+State ownership
+AppState
+│
+└── rcon_sessions:
+    Signal<HashMap<SocketAddr, RconSession>>
+                            │
+                            ▼
+                     RconSession
+                     ├── addr
+                     ├── client
+                     ├── live_log
+                     ├── status
+                     ├── logs
+                     ├── players
+                     └── match_paused
+
+The outer signal answers:
+
+Which sessions exist?
+
+The state inside RconSession answers:
+
+What is happening inside this session?
+
+RconSession owns reactive state
+RconSession
+│
+├── client
+├── live_log
+│
+├── status        → Signal<RconStatus>
+├── logs          → Signal<Vec<RconLogEvent>>
+├── players       → Signal<RconPlayers>
+└── match_paused  → Signal<bool>
+
+The exact type of live_log depends on the existing live_log API, but conceptually it belongs to the session.
+
+There is one live-log instance per server, so there is no reason to manage it separately from the session representing that server.
+
+Session API
+
+Everything that changes session state goes through RconSession.
+
+RconSession
+│
+├── connect()
+├── disconnect()
+│
+├── execute(command)
+│
+├── process_log(parsed_line)
+├── push_log(event)
+│
+├── update_players(...)
+│
+├── pause()
+└── unpause()
+
+The UI does not do:
+
+client.lock()
+logs.write()
+players.write()
+paused.set(...)
+
+Instead:
+
+session.execute(...)
+session.pause()
+session.unpause()
+
+This keeps the ownership in one place.
+
+Live-log flow
+
+The global HTTP listener is only transport infrastructure.
+
+Game Server
+    │
+    ▼
+HTTP listener
+    │
+    ▼
+route by SocketAddr
+    │
+    ▼
+corresponding RconSession
+    │
+    ▼
+session.process_log(...)
+    │
+    ▼
+session's live_log / parser handling
+    │
+    ▼
+ParsedLine
+    │
+    ▼
+RconSession updates its state
+
+The important boundary is:
+
+The HTTP layer delivers the log to the correct session. The session owns what happens with it.
+
+Incoming game log
+Game Server
+    │
+    ▼
+HTTP listener
+    │
+    ▼
+LogParser / live_log
+    │
+    ▼
+ParsedLine
+    │
+    ▼
+RconSession::process_log()
+    │
+    ├── logs.write()
+    ├── players.write()       if relevant
+    ├── score/state update    if relevant
+    └── other state changes
+            │
+            ▼
+          Dioxus
+RCON command
+UI
+ │
+ ▼
+session.execute("mp_restartgame 1")
+ │
+ ├── RCON client
+ │
+ ├── logs.push("> mp_restartgame 1")
+ │
+ ├── logs.push(response)
+ │
+ └── update state if necessary
+        │
+        ▼
+      Dioxus
+
+The UI doesn't need to know how the command is executed or how the response gets into the log.
+
+UI flow
+RconConsole
+│
+├── finds RconSession by SocketAddr
+│
+├── Login / connection state
+│
+└── authenticated
+      │
+      ├── RconOverview
+      │     ├── score
+      │     ├── players
+      │     ├── pause/unpause
+      │     ├── restart
+      │     └── RconChat
+      │
+      └── RconTerminal
+            ├── logs
+            ├── filters
+            └── command input
+
+Both Chat and Terminal consume the same session log signal:
+
+                 RconSession
+                      │
+                logs: Signal<...>
+                 /           \
+                ▼             ▼
+           RconChat       Terminal
+
+Therefore:
+
+session.logs.write().push(...)
+              │
+              ▼
+       Signal changes
+              │
+        ┌─────┴─────┐
+        ▼           ▼
+      Chat       Terminal
+
+No copying of the log Vec and no passing &mut Vec around.
+
+The fundamental rule
+AppState
+   │
+   │ manages which sessions exist
+   ▼
+RconSession
+   │
+   │ owns connection + live_log + state + behavior
+   ▼
+Reactive Signals
+   │
+   │ consumed by
+   ▼
+UI components
+
+And the key ownership principle is now:
+
+One server = one RconSession = one RCON client + one live-log instance + all state and behavior belonging to that server.
+
+This is the version I'd use as our architectural reference going forward. If we deliberately change this structure later, we update this reference before continuing implementation.
