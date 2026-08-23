@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "v*.*.*"
+
   workflow_dispatch:
 
 permissions:
@@ -31,13 +32,16 @@ jobs:
             libwebkit2gtk-4.1-dev \
             libgtk-3-dev \
             libayatana-appindicator3-dev \
-            libxdo-dev \
             librsvg2-dev \
+            libxdo-dev \
             patchelf
+
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@main
 
       - name: Install Dioxus CLI
         run: |
-          cargo install dioxus-cli --version 0.7.10 --locked
+          cargo binstall dioxus-cli@0.7.10 --no-confirm
 
       - name: Show tool versions
         run: |
@@ -64,21 +68,24 @@ jobs:
           cp target/dx/lan_game_scan/bundle/linux/deb/*.deb release/
           cp target/dx/lan_game_scan/bundle/linux/rpm/*.rpm release/
 
-          echo "Release files:"
           ls -lh release
 
       - name: Generate SHA256 checksums
         working-directory: release
         run: |
           sha256sum * > SHA256SUMS
-
-          echo "Checksums:"
           cat SHA256SUMS
 
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-x86_64
+          path: release/
+
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
           files: |
             release/*
-
