@@ -64,8 +64,6 @@ jobs:
           cp target/dx/lan_game_scan/bundle/linux/deb/*.deb release/
           cp target/dx/lan_game_scan/bundle/linux/rpm/*.rpm release/
 
-          ls -lh release
-
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -104,115 +102,55 @@ jobs:
         run: |
           dx bundle --release
 
-      - name: Show complete Windows bundle structure
+      - name: Prepare Windows release files
         shell: pwsh
         run: |
-          Write-Host ""
-          Write-Host "========================================"
-          Write-Host " COMPLETE target/dx DIRECTORY STRUCTURE"
-          Write-Host "========================================"
-          Write-Host ""
+          New-Item -ItemType Directory -Force -Path release
+          New-Item -ItemType Directory -Force -Path portable
 
-          Get-ChildItem `
-            -Path target/dx `
-            -Recurse `
-            -Force |
-            Select-Object `
-              FullName,
-              Mode,
-              Length,
-              LastWriteTime |
-            Format-Table -AutoSize
-
-      - name: Show Windows bundle directories
-        shell: pwsh
-        run: |
-          Write-Host ""
-          Write-Host "========================================"
-          Write-Host " DIRECTORIES"
-          Write-Host "========================================"
-          Write-Host ""
-
-          Get-ChildItem `
-            -Path target/dx `
-            -Recurse `
-            -Directory |
-            Select-Object FullName |
-            Format-Table -AutoSize
-
-      - name: Show Windows files with sizes
-        shell: pwsh
-        run: |
-          Write-Host ""
-          Write-Host "========================================"
-          Write-Host " FILES + SIZES"
-          Write-Host "========================================"
-          Write-Host ""
-
-          Get-ChildItem `
-            -Path target/dx `
-            -Recurse `
+          # Installer
+          $installer = Get-ChildItem `
+            "target/dx/lan_game_scan/bundle/windows/nsis" `
+            -Filter "*-setup.exe" `
             -File |
-            Sort-Object Length -Descending |
-            Select-Object `
-              FullName,
-              @{Name="SizeMB";Expression={[math]::Round($_.Length / 1MB, 2)}} |
-            Format-Table -AutoSize
+            Select-Object -First 1
 
-      - name: Find Windows executables
-        shell: pwsh
-        run: |
-          Write-Host ""
-          Write-Host "========================================"
-          Write-Host " EXECUTABLES"
-          Write-Host "========================================"
-          Write-Host ""
+          if (-not $installer) {
+            throw "Windows NSIS installer not found."
+          }
 
-          Get-ChildItem `
-            -Path target/dx `
-            -Recurse `
-            -File |
-            Where-Object {
-              $_.Extension -in ".exe", ".dll"
-            } |
-            Select-Object `
-              FullName,
-              @{Name="SizeMB";Expression={[math]::Round($_.Length / 1MB, 2)}} |
-            Format-Table -AutoSize
+          Copy-Item `
+            $installer.FullName `
+            "release/$($installer.Name)"
 
-      - name: Find web assets
-        shell: pwsh
-        run: |
-          Write-Host ""
-          Write-Host "========================================"
-          Write-Host " WEB / DIOXUS ASSETS"
-          Write-Host "========================================"
-          Write-Host ""
+          # Portable application
+          $app = "target/dx/lan_game_scan/release/windows/app"
 
-          Get-ChildItem `
-            -Path target/dx `
-            -Recurse `
-            -File |
-            Where-Object {
-              $_.Extension -in `
-                ".css", `
-                ".js", `
-                ".html", `
-                ".ico", `
-                ".png", `
-                ".jpg", `
-                ".jpeg", `
-                ".svg", `
-                ".webp", `
-                ".json"
-            } |
-            Select-Object `
-              FullName,
-              @{Name="SizeKB";Expression={[math]::Round($_.Length / 1KB, 2)}} |
-            Format-Table -AutoSize
+          if (-not (Test-Path "$app/lan_game_scan.exe")) {
+            throw "Portable executable not found: $app/lan_game_scan.exe"
+          }
 
-      - name: Upload complete Windows bundle for inspection
+          if (-not (Test-Path "$app/assets")) {
+            throw "Portable assets directory not found: $app/assets"
+          }
+
+          Copy-Item `
+            "$app/lan_game_scan.exe" `
+            "portable/"
+
+          Copy-Item `
+            "$app/assets" `
+            "portable/assets" `
+            -Recurse
+
+          # Portable ZIP
+          Compress-Archive `
+            -Path "portable/*" `
+            -DestinationPath "release/LanGameScan_0.1.0_x64-portable.zip" `
+            -Force
+
+      - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: windows-bundle-inspection
-          path: target/dx/
+          name: windows-x86_64
+          path: release/
