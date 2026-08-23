@@ -41,7 +41,9 @@ jobs:
 
       - name: Install Dioxus CLI
         run: |
-          cargo binstall dioxus-cli@0.7.10 --no-confirm
+          cargo binstall dioxus-cli@0.7.10 \
+            --no-confirm \
+            --disable-strategies compile
 
       - name: Show tool versions
         run: |
@@ -88,7 +90,9 @@ jobs:
       - name: Install Dioxus CLI
         shell: pwsh
         run: |
-          cargo binstall dioxus-cli@0.7.10 --no-confirm
+          cargo binstall dioxus-cli@0.7.10 `
+            --no-confirm `
+            --disable-strategies compile
 
       - name: Show tool versions
         shell: pwsh
