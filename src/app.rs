@@ -1,11 +1,3 @@
-use dioxus::prelude::*;
-use dioxus::{
-    core::Element,
-    core_macro::{component, rsx},
-    hooks::{use_context_provider, use_future},
-    signals::{ReadableExt, Signal, WritableExt},
-};
-
 use crate::custom_components::code::RconSession;
 use crate::custom_components::matchzy::matchzy::start_matchzy_server;
 use crate::custom_components::server::Favourites;
@@ -15,6 +7,7 @@ use crate::custom_components::Navbar;
 use crate::misc::load_from_disk;
 use crate::scanner::create_scaner;
 use crate::state::AppState;
+use dioxus::prelude::*;
 use std::net::SocketAddr;
 use std::{
     collections::HashMap,

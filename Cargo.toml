@@ -34,4 +34,4 @@ live_log = { path = "live_log"}
 cbz_rcon = { path = "cbz_rcon"}
 if-addrs = "0.15.0"
 axum = "0.8.9"
-reqwest = { version = "0.13.4", default-features = false, features = ["native-tls"] }
+reqwest = { version = "0.13.4", default-features = false}
