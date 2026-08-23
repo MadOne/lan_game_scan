@@ -144,9 +144,11 @@ jobs:
             -Recurse
 
           # Portable ZIP
+          $version = "${{ github.ref_name }}".TrimStart("v")
+
           Compress-Archive `
             -Path "portable/*" `
-            -DestinationPath "release/LanGameScan_0.1.0_x64-portable.zip" `
+            -DestinationPath "release/LanGameScan_${version}_x64-portable.zip" `
             -Force
 
       - name: Upload Windows artifacts
@@ -154,3 +156,33 @@ jobs:
         with:
           name: windows-x86_64
           path: release/
+
+
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-24.04
+    needs:
+      - linux
+      - windows
+
+    steps:
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-x86_64
+          path: release
+
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-x86_64
+          path: release
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            release/* \
+            --title "${{ github.ref_name }}" \
+            --generate-notes
