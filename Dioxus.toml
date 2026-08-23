@@ -26,4 +26,6 @@ script = []
 
 
 [bundle]
-identifier = "com.madone"
+identifier = "com.madone.lan_game_scan"
+publisher = "Mad_One"
+icon = ["assets/icon.png"]

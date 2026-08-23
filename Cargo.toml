@@ -1,8 +1,11 @@
 
 [package]
-name = "lan_scanner"
+name = "lan_game_scan"
 version = "0.1.0"
+authors = ["Mad_One"]
 edition = "2021"
+license = "GPL-3.0-or-later"
+description = "LAN server browser and management application"
 
 [workspace]
 members = [
