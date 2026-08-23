@@ -104,92 +104,115 @@ jobs:
         run: |
           dx bundle --release
 
-      - name: Show generated bundles
+      - name: Show complete Windows bundle structure
         shell: pwsh
         run: |
-          Write-Host "Generated Dioxus bundles:"
+          Write-Host ""
+          Write-Host "========================================"
+          Write-Host " COMPLETE target/dx DIRECTORY STRUCTURE"
+          Write-Host "========================================"
+          Write-Host ""
+
+          Get-ChildItem `
+            -Path target/dx `
+            -Recurse `
+            -Force |
+            Select-Object `
+              FullName,
+              Mode,
+              Length,
+              LastWriteTime |
+            Format-Table -AutoSize
+
+      - name: Show Windows bundle directories
+        shell: pwsh
+        run: |
+          Write-Host ""
+          Write-Host "========================================"
+          Write-Host " DIRECTORIES"
+          Write-Host "========================================"
+          Write-Host ""
+
+          Get-ChildItem `
+            -Path target/dx `
+            -Recurse `
+            -Directory |
+            Select-Object FullName |
+            Format-Table -AutoSize
+
+      - name: Show Windows files with sizes
+        shell: pwsh
+        run: |
+          Write-Host ""
+          Write-Host "========================================"
+          Write-Host " FILES + SIZES"
+          Write-Host "========================================"
+          Write-Host ""
+
           Get-ChildItem `
             -Path target/dx `
             -Recurse `
             -File |
-            Select-Object FullName, Length
+            Sort-Object Length -Descending |
+            Select-Object `
+              FullName,
+              @{Name="SizeMB";Expression={[math]::Round($_.Length / 1MB, 2)}} |
+            Format-Table -AutoSize
 
-      - name: Prepare Windows release files
+      - name: Find Windows executables
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path release
+          Write-Host ""
+          Write-Host "========================================"
+          Write-Host " EXECUTABLES"
+          Write-Host "========================================"
+          Write-Host ""
 
-          $files = Get-ChildItem `
+          Get-ChildItem `
             -Path target/dx `
             -Recurse `
             -File |
             Where-Object {
-              $_.Name -like "*setup.exe"
-            }
+              $_.Extension -in ".exe", ".dll"
+            } |
+            Select-Object `
+              FullName,
+              @{Name="SizeMB";Expression={[math]::Round($_.Length / 1MB, 2)}} |
+            Format-Table -AutoSize
 
-          if (-not $files) {
-            Write-Error "No Windows setup.exe installer was produced."
-            exit 1
-          }
+      - name: Find web assets
+        shell: pwsh
+        run: |
+          Write-Host ""
+          Write-Host "========================================"
+          Write-Host " WEB / DIOXUS ASSETS"
+          Write-Host "========================================"
+          Write-Host ""
 
-          foreach ($file in $files) {
-            Copy-Item `
-              $file.FullName `
-              "release/$($file.Name)"
-          }
+          Get-ChildItem `
+            -Path target/dx `
+            -Recurse `
+            -File |
+            Where-Object {
+              $_.Extension -in `
+                ".css", `
+                ".js", `
+                ".html", `
+                ".ico", `
+                ".png", `
+                ".jpg", `
+                ".jpeg", `
+                ".svg", `
+                ".webp", `
+                ".json"
+            } |
+            Select-Object `
+              FullName,
+              @{Name="SizeKB";Expression={[math]::Round($_.Length / 1KB, 2)}} |
+            Format-Table -AutoSize
 
-          Write-Host "Windows release files:"
-          Get-ChildItem release
-
-      - name: Upload Windows artifacts
+      - name: Upload complete Windows bundle for inspection
         uses: actions/upload-artifact@v4
         with:
-          name: windows-x86_64
-          path: release/
-
-
-  release:
-    name: Create GitHub Release
-    needs:
-      - linux
-      - windows
-
-    runs-on: ubuntu-24.04
-
-    steps:
-      - name: Download Linux artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: linux-x86_64
-          path: release
-
-      - name: Download Windows artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: windows-x86_64
-          path: release
-
-      - name: Show release files
-        run: |
-          echo "Release files:"
-          ls -lh release
-
-      - name: Generate SHA256 checksums
-        working-directory: release
-        run: |
-          sha256sum * > SHA256SUMS
-          cat SHA256SUMS
-
-      - name: Upload combined release artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-packages
-          path: release/
-
-      - name: Create GitHub Release
-        if: github.ref_type == 'tag'
-        uses: softprops/action-gh-release@v3
-        with:
-          generate_release_notes: true
-          files: |
-            release/*
+          name: windows-bundle-inspection
+          path: target/dx/
