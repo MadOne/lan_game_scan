@@ -1,0 +1,911 @@
+// -----------------------------------------------------------------------------
+// parser.rs
+// -----------------------------------------------------------------------------
+
+use std::fmt;
+use std::net::SocketAddr;
+
+use crate::{
+    log_patterns::{build_patterns, LogPattern, TS_BLOCK},
+    round_stats::RoundStats,
+};
+
+use regex::{Regex, RegexSet};
+use strum::IntoEnumIterator;
+use strum_macros::EnumIter;
+
+// -----------------------------------------------------------------------------
+// TEAM
+// -----------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Team {
+    CT,
+    Terrorist,
+    Spectator,
+    Unassigned,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Player {
+    pub id: u16,
+    pub name: String,
+    pub steamid: String,
+    pub team: Team,
+}
+
+impl Team {
+    pub fn from_str(s: &str) -> Self {
+        let clean = s.trim_matches(|c| c == '<' || c == '>' || c == ' ');
+
+        match clean.to_uppercase().as_str() {
+            "CT" | "COUNTER-TERRORISTS" => Team::CT,
+            "TERRORIST" | "T" | "TERRORISTS" => Team::Terrorist,
+            "SPECTATOR" => Team::Spectator,
+            "UNASSIGNED" | "" => Team::Unassigned,
+            _ => Team::Unknown,
+        }
+    }
+
+    pub fn color_code(&self) -> &'static str {
+        match self {
+            Team::CT => "\x1b[34m",
+            Team::Terrorist => "\x1b[31m",
+            _ => "\x1b[37m",
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// PARSED LINE
+// -----------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub struct ParsedLine {
+    pub raw: String,
+    pub timestamp: String,
+    pub event: LogEvent,
+    pub log_type: LogType,
+    pub pretty: String,
+    pub socketaddr: SocketAddr,
+}
+
+// -----------------------------------------------------------------------------
+// LOG TYPE
+// -----------------------------------------------------------------------------
+//
+// LogType is the lightweight identifier used by the UI/filtering layer.
+//
+// LogEvent contains the actual data.
+// LogType contains only the variant/category.
+//
+// IMPORTANT:
+// Do not manually maintain a second list of event IDs in the UI.
+// The UI can iterate LogType::iter().
+//
+// -----------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumIter)]
+pub enum LogType {
+    Chat,
+    Kill,
+    Attacked,
+    ScoreUpdate,
+    BombEvent,
+    RoundWin,
+    TeamSwitch,
+    Connection,
+    Purchase,
+    WorldTrigger,
+    Suicide,
+    Technical,
+    LeftBuyZone,
+    RoundStats,
+    Assist,
+    Grenade,
+    SvGrenade,
+    Blinded,
+    MatchStatus,
+    MatchStart,
+    TeamScore,
+    MolotovSpawn,
+    GameOver,
+    ServerCvar,
+    BombDeath,
+    RoundAccolade,
+    ServerCvarDump,
+    LogFile,
+    MapLoading,
+    ServerStarted,
+    FreezePeriod,
+    Rcon,
+    Ignored,
+    Unknown,
+}
+
+impl LogType {
+    /// Human-readable / stable identifier used by the UI.
+    pub fn label(self) -> &'static str {
+        match self {
+            LogType::Chat => "CHAT",
+            LogType::Kill => "PLAYER_KILLED",
+            LogType::Attacked => "PLAYER_DAMAGED",
+            LogType::ScoreUpdate => "MATCH_SCORE",
+            LogType::BombEvent => "BOMB_EVENT",
+            LogType::RoundWin => "ROUND_WIN",
+            LogType::TeamSwitch => "PLAYER_TEAM_SWITCH",
+            LogType::Connection => "PLAYER_CONNECTION",
+            LogType::Purchase => "PLAYER_PURCHASE",
+            LogType::WorldTrigger => "WORLD_TRIGGER",
+            LogType::Suicide => "PLAYER_SUICIDE",
+            LogType::Technical => "TECHNICAL",
+            LogType::LeftBuyZone => "PLAYER_LEFT_BUYZONE",
+            LogType::RoundStats => "ROUND_STATS",
+            LogType::Assist => "PLAYER_ASSIST",
+            LogType::Grenade => "PLAYER_GRENADE_THROW",
+            LogType::SvGrenade => "SERVER_GRENADE_THROW",
+            LogType::Blinded => "PLAYER_BLINDED",
+            LogType::MatchStatus => "MATCH_TEAM_STATUS",
+            LogType::MatchStart => "MATCH_START",
+            LogType::TeamScore => "ROUND_TEAM_SCORE",
+            LogType::MolotovSpawn => "SERVER_MOLOTOV_SPAWN",
+            LogType::GameOver => "GAME_OVER",
+            LogType::ServerCvar => "SERVER_CVAR",
+            LogType::BombDeath => "PLAYER_BOMB_DEATH",
+            LogType::RoundAccolade => "ROUND_ACCOLADE",
+            LogType::ServerCvarDump => "SERVER_CVAR_DUMP",
+            LogType::LogFile => "LOG_FILE",
+            LogType::MapLoading => "MAP_LOADING",
+            LogType::ServerStarted => "SERVER_STARTED",
+            LogType::FreezePeriod => "ROUND_FREEZE",
+            LogType::Rcon => "RCON",
+            LogType::Ignored => "IGNORED",
+            LogType::Unknown => "UNKNOWN",
+        }
+    }
+
+    /// Returns all LogType variants.
+    ///
+    /// This is generated by strum, so adding a new LogType variant means
+    /// EnumIter will automatically include it here.
+    pub fn all() -> impl Iterator<Item = LogType> {
+        Self::iter()
+    }
+}
+
+// -----------------------------------------------------------------------------
+// LOG EVENTS
+// -----------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum LogEvent {
+    Chat {
+        player: Player,
+        msg: String,
+        is_team_chat: bool,
+    },
+
+    Kill {
+        attacker: Player,
+        victim: Player,
+        weapon: String,
+        headshot: bool,
+        penetrated: bool,
+        through_smoke: bool,
+        attacker_in_air: bool,
+    },
+
+    Attacked {
+        attacker: Player,
+        victim: Player,
+        damage: u16,
+        weapon: String,
+        hitgroup: String,
+    },
+
+    ScoreUpdate {
+        t1: u8,
+        t2: u8,
+        map: String,
+        rounds: i32,
+    },
+
+    BombEvent {
+        player: Player,
+        event: String,
+        site: Option<String>,
+    },
+
+    RoundWin {
+        team: String,
+        winner_side: Team,
+        reason: String,
+        ct_score: u8,
+        t_score: u8,
+    },
+
+    TeamSwitch {
+        player: Player,
+        from: Team,
+    },
+
+    Connection {
+        player: Player,
+        action: String,
+        info: Option<String>,
+    },
+
+    Purchase {
+        player: Player,
+        item: String,
+    },
+
+    WorldTrigger {
+        event: String,
+    },
+
+    Suicide {
+        player: Player,
+        weapon: String,
+    },
+
+    Technical {
+        name: String,
+        action: String,
+    },
+
+    LeftBuyZone {
+        player: Player,
+        items: Vec<String>,
+    },
+
+    RoundStats {
+        roundstats: RoundStats,
+    },
+
+    Assist {
+        assister: Player,
+        victim: Player,
+    },
+
+    Grenade {
+        player: Player,
+        grenade: String,
+    },
+
+    SvGrenade {
+        player: Player,
+        grenade: String,
+    },
+
+    Blinded {
+        attacker: Player,
+        victim: Player,
+        duration: f32,
+    },
+
+    MatchStatus {
+        team: Team,
+        team_name: Option<String>,
+    },
+
+    MatchStart {
+        map: String,
+    },
+
+    TeamScore {
+        team: Team,
+        score: u8,
+        players: u8,
+    },
+
+    MolotovSpawn {
+        x: f32,
+        y: f32,
+        z: f32,
+        vx: f32,
+        vy: f32,
+        vz: f32,
+    },
+
+    GameOver {
+        mode: String,
+        map: String,
+        t_score: u8,
+        ct_score: u8,
+        minutes: u16,
+    },
+
+    ServerCvar {
+        name: String,
+        value: String,
+    },
+
+    BombDeath {
+        player: Player,
+    },
+
+    RoundAccolade {
+        category: String,
+        player: Player,
+        value: f32,
+        position: u8,
+        score: f32,
+    },
+
+    ServerCvarDump {
+        cvars: Vec<(String, String)>,
+    },
+
+    LogFile {
+        started: bool,
+    },
+
+    MapLoading {
+        map: String,
+    },
+    Rcon {
+        addr: String,
+        command: String,
+    },
+
+    ServerStarted,
+
+    FreezePeriod,
+
+    Ignored,
+
+    Unknown,
+}
+
+// -----------------------------------------------------------------------------
+// LOG EVENT -> LOG TYPE
+// -----------------------------------------------------------------------------
+
+impl LogEvent {
+    /// Returns the lightweight LogType for this event.
+    ///
+    /// This is the single mapping between LogEvent and LogType.
+    ///
+    /// Because this is a match over LogEvent, Rust will warn/error if a new
+    /// LogEvent variant is added and this match is not updated.
+    pub fn kind(&self) -> LogType {
+        match self {
+            LogEvent::Chat { .. } => LogType::Chat,
+            LogEvent::Kill { .. } => LogType::Kill,
+            LogEvent::Attacked { .. } => LogType::Attacked,
+            LogEvent::ScoreUpdate { .. } => LogType::ScoreUpdate,
+            LogEvent::BombEvent { .. } => LogType::BombEvent,
+            LogEvent::RoundWin { .. } => LogType::RoundWin,
+            LogEvent::TeamSwitch { .. } => LogType::TeamSwitch,
+            LogEvent::Connection { .. } => LogType::Connection,
+            LogEvent::Purchase { .. } => LogType::Purchase,
+            LogEvent::WorldTrigger { .. } => LogType::WorldTrigger,
+            LogEvent::Suicide { .. } => LogType::Suicide,
+            LogEvent::Technical { .. } => LogType::Technical,
+            LogEvent::LeftBuyZone { .. } => LogType::LeftBuyZone,
+            LogEvent::RoundStats { .. } => LogType::RoundStats,
+            LogEvent::Assist { .. } => LogType::Assist,
+            LogEvent::Grenade { .. } => LogType::Grenade,
+            LogEvent::SvGrenade { .. } => LogType::SvGrenade,
+            LogEvent::Blinded { .. } => LogType::Blinded,
+            LogEvent::MatchStatus { .. } => LogType::MatchStatus,
+            LogEvent::MatchStart { .. } => LogType::MatchStart,
+            LogEvent::TeamScore { .. } => LogType::TeamScore,
+            LogEvent::MolotovSpawn { .. } => LogType::MolotovSpawn,
+            LogEvent::GameOver { .. } => LogType::GameOver,
+            LogEvent::ServerCvar { .. } => LogType::ServerCvar,
+            LogEvent::BombDeath { .. } => LogType::BombDeath,
+            LogEvent::RoundAccolade { .. } => LogType::RoundAccolade,
+            LogEvent::ServerCvarDump { .. } => LogType::ServerCvarDump,
+            LogEvent::LogFile { .. } => LogType::LogFile,
+            LogEvent::MapLoading { .. } => LogType::MapLoading,
+            LogEvent::ServerStarted => LogType::ServerStarted,
+            LogEvent::FreezePeriod => LogType::FreezePeriod,
+            LogEvent::Rcon { .. } => LogType::Rcon,
+            LogEvent::Ignored => LogType::Ignored,
+            LogEvent::Unknown => LogType::Unknown,
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// LOG EVENT DISPLAY
+// -----------------------------------------------------------------------------
+//
+// This is deliberately based only on the CURRENT LogEvent enum.
+//
+// There is no second enum or manually maintained event-id field.
+//
+// If a new LogEvent is added, this match will fail to compile until its
+// display/filter identifier is explicitly defined here.
+//
+// -----------------------------------------------------------------------------
+
+impl fmt::Display for LogEvent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let event_id = match self {
+            // =============================================================
+            // PLAYER / COMBAT
+            // =============================================================
+            LogEvent::Attacked { .. } => "PLAYER_DAMAGED",
+
+            LogEvent::Kill { .. } => "PLAYER_KILLED",
+
+            LogEvent::Assist { .. } => "PLAYER_ASSIST",
+
+            LogEvent::Grenade { .. } => "PLAYER_GRENADE_THROW",
+
+            LogEvent::Blinded { .. } => "PLAYER_BLINDED",
+
+            LogEvent::Purchase { .. } => "PLAYER_PURCHASE",
+
+            LogEvent::Suicide { .. } => "PLAYER_SUICIDE",
+
+            LogEvent::BombDeath { .. } => "PLAYER_BOMB_DEATH",
+
+            // =============================================================
+            // PLAYER / CONNECTION
+            // =============================================================
+            LogEvent::TeamSwitch { .. } => "PLAYER_TEAM_SWITCH",
+
+            LogEvent::Connection { .. } => "PLAYER_CONNECTION",
+
+            LogEvent::LeftBuyZone { .. } => "PLAYER_LEFT_BUYZONE",
+
+            // =============================================================
+            // CHAT
+            // =============================================================
+            LogEvent::Chat { .. } => "CHAT",
+
+            // =============================================================
+            // BOMB / ROUND
+            // =============================================================
+            LogEvent::BombEvent { .. } => "BOMB_EVENT",
+
+            LogEvent::RoundWin { .. } => "ROUND_WIN",
+
+            LogEvent::RoundStats { .. } => "ROUND_STATS",
+
+            LogEvent::FreezePeriod => "ROUND_FREEZE",
+
+            LogEvent::TeamScore { .. } => "ROUND_TEAM_SCORE",
+
+            LogEvent::RoundAccolade { .. } => "ROUND_ACCOLADE",
+
+            // =============================================================
+            // MATCH
+            // =============================================================
+            LogEvent::ScoreUpdate { .. } => "MATCH_SCORE",
+
+            LogEvent::MatchStatus { .. } => "MATCH_TEAM_STATUS",
+
+            LogEvent::MatchStart { .. } => "MATCH_START",
+
+            LogEvent::GameOver { .. } => "GAME_OVER",
+
+            // =============================================================
+            // WORLD / SERVER
+            // =============================================================
+            LogEvent::WorldTrigger { .. } => "WORLD_TRIGGER",
+
+            LogEvent::SvGrenade { .. } => "SERVER_GRENADE_THROW",
+
+            LogEvent::MolotovSpawn { .. } => "SERVER_MOLOTOV_SPAWN",
+
+            LogEvent::ServerCvar { .. } => "SERVER_CVAR",
+
+            LogEvent::ServerCvarDump { .. } => "SERVER_CVAR_DUMP",
+
+            LogEvent::ServerStarted => "SERVER_STARTED",
+
+            // =============================================================
+            // LIFECYCLE / TECHNICAL
+            // =============================================================
+            LogEvent::LogFile { .. } => "LOG_FILE",
+
+            LogEvent::MapLoading { .. } => "MAP_LOADING",
+
+            LogEvent::Technical { .. } => "TECHNICAL",
+
+            LogEvent::Ignored => "IGNORED",
+
+            LogEvent::Unknown => "UNKNOWN",
+            LogEvent::Rcon { .. } => "RCON",
+        };
+
+        f.write_str(event_id)
+    }
+}
+
+// -----------------------------------------------------------------------------
+// LOG PARSER
+// -----------------------------------------------------------------------------
+
+pub struct LogParser {
+    re_ts: Regex,
+    pattern_set: RegexSet,
+    patterns: Vec<LogPattern>,
+}
+
+impl LogParser {
+    pub fn new() -> Self {
+        let patterns = build_patterns();
+
+        let pattern_set = RegexSet::new(patterns.iter().map(|pattern| pattern.regex.as_str()))
+            .expect("Failed to compile parser regex patterns");
+
+        Self {
+            re_ts: Regex::new(&format!(r"(?s)^{} - (?P<content>.*)$", TS_BLOCK))
+                .expect("Failed to compile timestamp regex"),
+
+            pattern_set,
+            patterns,
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // PARSE
+    // -------------------------------------------------------------------------
+
+    pub fn parse(&self, line: &str, socketaddr: SocketAddr) -> ParsedLine {
+        let mut timestamp = String::new();
+        let mut content = line;
+
+        // -------------------------------------------------------------
+        // Timestamp / content extraction
+        // -------------------------------------------------------------
+
+        if let Some(caps) = self.re_ts.captures(line) {
+            if let Some(ts) = caps.name("ts") {
+                timestamp = ts.as_str().to_string();
+            }
+
+            if let Some(cnt) = caps.name("content") {
+                content = cnt.as_str();
+            }
+        }
+
+        // -------------------------------------------------------------
+        // Pattern matching
+        // -------------------------------------------------------------
+
+        let matches: Vec<usize> = self.pattern_set.matches(content).into_iter().collect();
+
+        let event = match matches.as_slice() {
+            // ---------------------------------------------------------
+            // No pattern matched
+            // ---------------------------------------------------------
+            [] => LogEvent::Unknown,
+
+            // ---------------------------------------------------------
+            // Exactly one pattern matched
+            // ---------------------------------------------------------
+            [index] => {
+                let pattern = &self.patterns[*index];
+
+                let caps = match pattern.regex.captures(content) {
+                    Some(caps) => caps,
+
+                    None => {
+                        eprintln!(
+                            "RegexSet mismatch for pattern '{}': {}",
+                            pattern.id, content
+                        );
+
+                        return ParsedLine {
+                            raw: line.to_string(),
+                            timestamp,
+                            event: LogEvent::Unknown,
+                            log_type: LogType::Unknown,
+                            pretty: String::new(),
+                            socketaddr,
+                        };
+                    }
+                };
+
+                match pattern.parse(content, &caps) {
+                    Some(event) => event,
+
+                    None => {
+                        eprintln!(
+                            "Pattern '{}' matched but failed to parse: {}",
+                            pattern.id, content
+                        );
+
+                        LogEvent::Unknown
+                    }
+                }
+            }
+
+            // ---------------------------------------------------------
+            // Multiple patterns matched
+            // ---------------------------------------------------------
+            multiple => {
+                eprintln!(
+                    "AMBIGUOUS LOG LINE: {} matches: {:?}\n{}",
+                    multiple.len(),
+                    multiple,
+                    content
+                );
+
+                LogEvent::Unknown
+            }
+        };
+
+        // -------------------------------------------------------------
+        // Derive LogType from the actual LogEvent.
+        // -------------------------------------------------------------
+
+        let log_type = event.kind();
+
+        // -------------------------------------------------------------
+        // Pretty output
+        //
+        // Use the matched pattern when possible.
+        // For UNKNOWN / ambiguous events there is no pattern to format.
+        // -------------------------------------------------------------
+
+        let pretty = match matches.as_slice() {
+            [index] => {
+                let pattern = &self.patterns[*index];
+
+                pattern.pretty(&event)
+            }
+
+            _ => String::new(),
+        };
+
+        ParsedLine {
+            raw: line.to_string(),
+            timestamp,
+            event,
+            log_type,
+            pretty,
+            socketaddr,
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// TESTS
+// -----------------------------------------------------------------------------
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_player(id: u16, name: &str, steamid: &str, team: Team) -> Player {
+        Player {
+            id,
+            name: name.to_string(),
+            steamid: steamid.to_string(),
+            team,
+        }
+    }
+
+    #[test]
+    fn log_type_covers_all_variants() {
+        let types: Vec<LogType> = LogType::all().collect();
+
+        assert!(!types.is_empty());
+
+        for log_type in types {
+            assert!(!log_type.label().is_empty());
+        }
+    }
+
+    #[test]
+    fn event_kind_matches_event() {
+        let event = LogEvent::ServerStarted;
+
+        assert_eq!(event.kind(), LogType::ServerStarted);
+        assert_eq!(event.kind().label(), "SERVER_STARTED");
+    }
+
+    #[test]
+    fn unknown_event_has_unknown_type() {
+        let event = LogEvent::Unknown;
+
+        assert_eq!(event.kind(), LogType::Unknown);
+        assert_eq!(event.kind().label(), "UNKNOWN");
+    }
+
+    #[test]
+    fn display_matches_current_event_variants() {
+        assert_eq!(
+            LogEvent::Grenade {
+                player: test_player(1, "Player", "76561198000000001", Team::Terrorist,),
+                grenade: "hegrenade".to_string(),
+            }
+            .to_string(),
+            "PLAYER_GRENADE_THROW"
+        );
+
+        assert_eq!(
+            LogEvent::Connection {
+                player: test_player(2, "Player", "76561198000000002", Team::CT,),
+                action: "disconnected".to_string(),
+                info: None,
+            }
+            .to_string(),
+            "PLAYER_CONNECTION"
+        );
+
+        assert_eq!(
+            LogEvent::Kill {
+                attacker: test_player(1, "Attacker", "76561198000000001", Team::Terrorist,),
+                victim: test_player(2, "Victim", "76561198000000002", Team::CT,),
+                weapon: "ak47".to_string(),
+                headshot: true,
+                penetrated: false,
+                through_smoke: false,
+                attacker_in_air: false,
+            }
+            .to_string(),
+            "PLAYER_KILLED"
+        );
+
+        assert_eq!(
+            LogEvent::Attacked {
+                attacker: test_player(1, "Attacker", "76561198000000001", Team::Terrorist,),
+                victim: test_player(2, "Victim", "76561198000000002", Team::CT,),
+                damage: 42,
+                weapon: "ak47".to_string(),
+                hitgroup: "Chest".to_string(),
+            }
+            .to_string(),
+            "PLAYER_DAMAGED"
+        );
+
+        assert_eq!(
+            LogEvent::Chat {
+                player: test_player(3, "Player", "76561198000000003", Team::CT,),
+                msg: "Hello".to_string(),
+                is_team_chat: false,
+            }
+            .to_string(),
+            "CHAT"
+        );
+
+        assert_eq!(
+            LogEvent::TeamSwitch {
+                player: test_player(4, "Player", "76561198000000004", Team::CT,),
+                from: Team::Terrorist,
+            }
+            .to_string(),
+            "PLAYER_TEAM_SWITCH"
+        );
+
+        assert_eq!(
+            LogEvent::Purchase {
+                player: test_player(5, "Player", "76561198000000005", Team::Terrorist,),
+                item: "ak47".to_string(),
+            }
+            .to_string(),
+            "PLAYER_PURCHASE"
+        );
+
+        assert_eq!(
+            LogEvent::Suicide {
+                player: test_player(6, "Player", "76561198000000006", Team::CT,),
+                weapon: "world".to_string(),
+            }
+            .to_string(),
+            "PLAYER_SUICIDE"
+        );
+
+        assert_eq!(
+            LogEvent::BombDeath {
+                player: test_player(7, "Player", "76561198000000007", Team::Terrorist,),
+            }
+            .to_string(),
+            "PLAYER_BOMB_DEATH"
+        );
+
+        assert_eq!(
+            LogEvent::Assist {
+                assister: test_player(8, "Assister", "76561198000000008", Team::CT,),
+                victim: test_player(9, "Victim", "76561198000000009", Team::Terrorist,),
+            }
+            .to_string(),
+            "PLAYER_ASSIST"
+        );
+
+        assert_eq!(
+            LogEvent::Blinded {
+                attacker: test_player(10, "Attacker", "76561198000000010", Team::CT,),
+                victim: test_player(11, "Victim", "76561198000000011", Team::Terrorist,),
+                duration: 2.5,
+            }
+            .to_string(),
+            "PLAYER_BLINDED"
+        );
+
+        assert_eq!(
+            LogEvent::LeftBuyZone {
+                player: test_player(12, "Player", "76561198000000012", Team::CT,),
+                items: vec!["ak47".to_string(), "flashbang".to_string()],
+            }
+            .to_string(),
+            "PLAYER_LEFT_BUYZONE"
+        );
+
+        assert_eq!(
+            LogEvent::ScoreUpdate {
+                t1: 5,
+                t2: 4,
+                map: "de_mirage".to_string(),
+                rounds: 9,
+            }
+            .to_string(),
+            "MATCH_SCORE"
+        );
+
+        assert_eq!(
+            LogEvent::MatchStatus {
+                team: Team::CT,
+                team_name: Some("Counter-Terrorists".to_string()),
+            }
+            .to_string(),
+            "MATCH_TEAM_STATUS"
+        );
+
+        assert_eq!(
+            LogEvent::SvGrenade {
+                player: test_player(13, "Player", "76561198000000013", Team::Terrorist,),
+                grenade: "smokegrenade".to_string(),
+            }
+            .to_string(),
+            "SERVER_GRENADE_THROW"
+        );
+
+        assert_eq!(
+            LogEvent::MolotovSpawn {
+                x: 1.0,
+                y: 2.0,
+                z: 3.0,
+                vx: 4.0,
+                vy: 5.0,
+                vz: 6.0,
+            }
+            .to_string(),
+            "SERVER_MOLOTOV_SPAWN"
+        );
+
+        assert_eq!(LogEvent::FreezePeriod.to_string(), "ROUND_FREEZE");
+
+        assert_eq!(LogEvent::ServerStarted.to_string(), "SERVER_STARTED");
+
+        assert_eq!(LogEvent::Ignored.to_string(), "IGNORED");
+
+        assert_eq!(LogEvent::Unknown.to_string(), "UNKNOWN");
+    }
+
+    #[test]
+    fn player_contains_identity_and_team() {
+        let player = test_player(42, "TestPlayer", "76561198012345678", Team::CT);
+
+        assert_eq!(player.id, 42);
+        assert_eq!(player.name, "TestPlayer");
+        assert_eq!(player.steamid, "76561198012345678");
+        assert_eq!(player.team, Team::CT);
+    }
+
+    #[test]
+    fn player_equality_includes_all_fields() {
+        let player_a = test_player(1, "Player", "76561198000000001", Team::CT);
+
+        let player_b = test_player(1, "Player", "76561198000000001", Team::CT);
+
+        assert_eq!(player_a, player_b);
+
+        let different_id = test_player(2, "Player", "76561198000000001", Team::CT);
+
+        assert_ne!(player_a, different_id);
+
+        let different_team = test_player(1, "Player", "76561198000000001", Team::Terrorist);
+
+        assert_ne!(player_a, different_team);
+    }
+}
