@@ -14,11 +14,6 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-
-  # ============================================================
-  # Linux
-  # ============================================================
-
   linux:
     name: Linux x86_64
     runs-on: ubuntu-24.04
@@ -39,7 +34,9 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev \
             libxdo-dev \
-            patchelf
+            patchelf \
+            flatpak \
+            flatpak-builder
 
       - name: Install cargo-binstall
         uses: cargo-bins/cargo-binstall@main
@@ -55,6 +52,8 @@ jobs:
           rustc --version
           cargo --version
           dx --version
+          flatpak --version
+          flatpak-builder --version
 
       - name: Bundle Linux packages
         run: |
@@ -71,16 +70,42 @@ jobs:
           cp target/dx/lan_game_scan/bundle/linux/deb/*.deb release/
           cp target/dx/lan_game_scan/bundle/linux/rpm/*.rpm release/
 
+      - name: Install GNOME Flatpak runtime
+        run: |
+          flatpak remote-add --if-not-exists \
+            --user \
+            flathub \
+            https://flathub.org/repo/flathub.flatpakrepo
+
+          flatpak install --user --noninteractive \
+            flathub \
+            org.gnome.Platform//50 \
+            org.gnome.Sdk//50
+
+      - name: Build Flatpak
+        run: |
+          flatpak-builder \
+            --repo=repo \
+            --force-clean \
+            build-dir \
+            flatpak/com.madone.lan_game_scan.yml
+
+      - name: Create Flatpak bundle
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+
+          flatpak build-bundle \
+            repo \
+            "release/LanGameScan_${VERSION}_x86_64.flatpak" \
+            com.madone.lan_game_scan \
+            master
+
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
         with:
           name: linux-x86_64
           path: release/
 
-
-  # ============================================================
-  # Windows
-  # ============================================================
 
   windows:
     name: Windows x86_64
@@ -171,120 +196,6 @@ jobs:
           path: release/
 
 
-  # ============================================================
-  # Android
-  # ============================================================
-
-  android:
-    name: Android
-    runs-on: ubuntu-24.04
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-linux-android,x86_64-linux-android
-
-      - name: Set up Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK packages
-        run: |
-          sdkmanager "platform-tools" \
-            "platforms;android-35" \
-            "build-tools;35.0.1" \
-            "ndk;28.2.13676358"
-
-      - name: Configure Android environment
-        run: |
-          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/28.2.13676358" >> "$GITHUB_ENV"
-
-      - name: Install cargo-binstall
-        uses: cargo-bins/cargo-binstall@main
-
-      - name: Install Dioxus CLI
-        run: |
-          cargo binstall dioxus-cli@0.7.10 \
-            --no-confirm \
-            --disable-strategies compile
-
-      - name: Show tool versions
-        run: |
-          rustc --version
-          cargo --version
-          dx --version
-
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME"
-
-          "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android35-clang" --version
-
-      - name: Build Android APK
-        run: |
-          dx build --android --release
-
-      - name: Find Android APK
-        run: |
-          echo "Android build output:"
-          find target/dx -type f \( -name "*.apk" -o -name "*.aab" \) -print
-
-      - name: Verify Android APK
-        run: |
-          APK=$(find target/dx -type f -name "*.apk" | head -n 1)
-
-          if [ -z "$APK" ]; then
-            echo "No APK found."
-            exit 1
-          fi
-
-          echo "APK:"
-          ls -lh "$APK"
-
-          echo
-          echo "APK information:"
-          "$ANDROID_HOME/build-tools/35.0.1/aapt" dump badging "$APK" | head -10
-
-          echo
-          echo "Native libraries:"
-          unzip -l "$APK" | grep -E 'lib/.*/libmain.so'
-
-      - name: Prepare Android release file
-        run: |
-          mkdir -p release
-
-          APK=$(find target/dx -type f -name "*.apk" | head -n 1)
-
-          if [ -z "$APK" ]; then
-            echo "No APK found."
-            exit 1
-          fi
-
-          VERSION="${GITHUB_REF_NAME#v}"
-
-          cp "$APK" \
-            "release/LanGameScan_${VERSION}_android.apk"
-
-      - name: Upload Android artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: android
-          path: release/
-
-
-  # ============================================================
-  # GitHub Release
-  # ============================================================
-
   release:
     name: Create GitHub Release
     runs-on: ubuntu-24.04
@@ -292,7 +203,6 @@ jobs:
     needs:
       - linux
       - windows
-      - android
 
     steps:
       - name: Checkout
@@ -310,16 +220,10 @@ jobs:
           name: windows-x86_64
           path: release
 
-      - name: Download Android artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: android
-          path: release
-
       - name: Show release files
         run: |
           echo "Release files:"
-          ls -lh release
+          ls -lh release/
 
       - name: Create GitHub Release
         env:

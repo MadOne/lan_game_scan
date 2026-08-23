@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=LanGameScan
+Comment=LAN Game Server Browser
+Exec=lan_game_scan
+Icon=com.madone.lan_game_scan
+Terminal=false
+Type=Application
+Categories=Network;

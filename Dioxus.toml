@@ -1,31 +1,21 @@
 [application]
-# The name of your project
-name = "serverbrowser"
-# The input tailwind file
+name = "LanGameScan"
 tailwind_input = "input.css"
 
 [web.app]
+title = "LAN Game Scan"
 
-# HTML title tag content
-title = "serverbrowser"
-
-# include `assets` in web platform
 [web.resource]
-
-# Additional CSS style files
 style = []
-
-# Additional JavaScript files
 script = []
 
 [web.resource.dev]
-
-# Javascript code file
-# serve: [dev-server] only
 script = []
-
 
 [bundle]
 identifier = "com.madone.lan_game_scan"
 publisher = "Mad_One"
 icon = ["assets/icon.png"]
+category = "Network"
+short_description = "LAN Game Server Browser"
+long_description = "Discover and browse game servers on your local network."

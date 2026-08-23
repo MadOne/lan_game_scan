@@ -1,0 +1,51 @@
+app-id: com.madone.lan_game_scan
+
+runtime: org.gnome.Platform
+runtime-version: "50"
+sdk: org.gnome.Sdk
+
+command: lan_game_scan
+
+finish-args:
+  - --share=network
+
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+
+modules:
+
+  - name: libxdo
+
+    buildsystem: simple
+
+    build-commands:
+      - make libxdo.so
+      - install -Dm755 libxdo.so /app/lib/libxdo.so.3
+      - ln -s libxdo.so.3 /app/lib/libxdo.so
+
+    sources:
+      - type: archive
+        url: https://github.com/jordansissel/xdotool/archive/refs/tags/v3.20211022.1.tar.gz
+        sha256: 82b15a944a5e82fee15e0f6116bd9f642bc3d0bb6989fc0ca5ad9dfe35de0847
+
+  - name: lan-game-scan
+
+    buildsystem: simple
+
+    build-commands:
+      - install -Dm755 lan_game_scan /app/bin/lan_game_scan
+      - mkdir -p /app/bin/assets
+      - cp -r assets/* /app/bin/assets/
+      - install -Dm644 com.madone.lan_game_scan.desktop /app/share/applications/com.madone.lan_game_scan.desktop
+      - install -Dm644 com.madone.lan_game_scan.png /app/share/icons/hicolor/512x512/apps/com.madone.lan_game_scan.png
+
+    sources:
+      - type: dir
+        path: ../target/dx/lan_game_scan/release/linux/app
+
+      - type: file
+        path: com.madone.lan_game_scan.desktop
+
+      - type: file
+        path: com.madone.lan_game_scan.png
