@@ -85,3 +85,78 @@ jobs:
           generate_release_notes: true
           files: |
             release/*
+
+
+  windows:
+    name: Windows x86_64
+    runs-on: windows-2025
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@main
+
+      - name: Install Dioxus CLI
+        shell: pwsh
+        run: |
+          cargo binstall dioxus-cli@0.7.10 --no-confirm
+
+      - name: Show tool versions
+        shell: pwsh
+        run: |
+          rustc --version
+          cargo --version
+          dx --version
+
+      - name: Bundle Windows application
+        shell: pwsh
+        run: |
+          dx bundle --release
+
+      - name: Show generated bundles
+        shell: pwsh
+        run: |
+          Write-Host "Generated Dioxus bundles:"
+          Get-ChildItem `
+            -Path target/dx `
+            -Recurse `
+            -File |
+            Select-Object FullName, Length
+
+      - name: Prepare Windows release files
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release
+
+          $files = Get-ChildItem `
+            -Path target/dx `
+            -Recurse `
+            -File |
+            Where-Object {
+              $_.Extension -in ".exe", ".msi"
+            }
+
+          if (-not $files) {
+            Write-Error "No Windows .exe or .msi files were produced."
+            exit 1
+          }
+
+          foreach ($file in $files) {
+            Copy-Item `
+              $file.FullName `
+              "release/$($file.Name)"
+          }
+
+          Write-Host "Windows release files:"
+          Get-ChildItem release
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x86_64
+          path: release/
