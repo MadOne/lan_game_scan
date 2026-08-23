@@ -49,10 +49,6 @@ jobs:
           cargo --version
           dx --version
 
-      - name: Check release build
-        run: |
-          cargo check --release
-
       - name: Bundle Linux packages
         run: |
           dx bundle --release \
