@@ -197,7 +197,7 @@ jobs:
 
 
   android:
-    name: Android
+    name: Android ARM64
     runs-on: ubuntu-24.04
 
     steps:
@@ -207,7 +207,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android,x86_64-linux-android
+          targets: aarch64-linux-android
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -250,9 +250,12 @@ jobs:
 
           "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android35-clang" --version
 
-      - name: Build Android APK
+      - name: Build Android ARM64 APK
         run: |
-          dx build --android --release
+          dx build \
+            --android \
+            --release \
+            --target aarch64-linux-android
 
       - name: Find Android APK
         run: |
@@ -266,7 +269,7 @@ jobs:
           APK=$(find target/dx -type f -name "*.apk" | head -n 1)
 
           if [ -z "$APK" ]; then
-            echo "No APK found."
+            echo "ERROR: No APK found."
             exit 1
           fi
 
@@ -281,6 +284,17 @@ jobs:
           echo "Native libraries:"
           unzip -l "$APK" | grep -E 'lib/.*/libmain.so'
 
+          echo
+          echo "Checking for ARM64 native library..."
+
+          if ! unzip -l "$APK" | grep -q 'lib/arm64-v8a/libmain.so'; then
+            echo "ERROR: APK does not contain lib/arm64-v8a/libmain.so"
+            echo "The APK was built for the wrong Android architecture."
+            exit 1
+          fi
+
+          echo "ARM64 library found successfully."
+
       - name: Prepare Android release file
         run: |
           mkdir -p release
@@ -288,19 +302,19 @@ jobs:
           APK=$(find target/dx -type f -name "*.apk" | head -n 1)
 
           if [ -z "$APK" ]; then
-            echo "No APK found."
+            echo "ERROR: No APK found."
             exit 1
           fi
 
           VERSION="${GITHUB_REF_NAME#v}"
 
           cp "$APK" \
-            "release/LanGameScan_${VERSION}_android.apk"
+            "release/LanGameScan_${VERSION}_arm64-v8a.apk"
 
       - name: Upload Android artifact
         uses: actions/upload-artifact@v4
         with:
-          name: android
+          name: android-arm64
           path: release/
 
 
@@ -332,7 +346,7 @@ jobs:
       - name: Download Android artifacts
         uses: actions/download-artifact@v4
         with:
-          name: android
+          name: android-arm64
           path: release
 
       - name: Show release files
@@ -348,4 +362,3 @@ jobs:
             release/* \
             --title "${{ github.ref_name }}" \
             --generate-notes
-
