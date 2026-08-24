@@ -339,9 +339,14 @@ jobs:
       # --------------------------------------------------------
       # Build APK
       # --------------------------------------------------------
-      - name: Build Android APK
+      - name: Build Android ARM64 APK
         run: |
-          dx build --android --release
+          export PATH="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
+
+          dx build \
+            --android \
+            --release \
+            --target aarch64-linux-android
 
       # --------------------------------------------------------
       # Find APK
