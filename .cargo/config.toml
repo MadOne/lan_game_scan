@@ -1,2 +1,5 @@
 [target.aarch64-linux-android]
-linker = "/home/madone/Android/Sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android35-clang"
+linker = "aarch64-linux-android35-clang"
+
+[target.x86_64-linux-android]
+linker = "x86_64-linux-android35-clang"
