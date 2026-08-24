@@ -8,11 +8,26 @@ use crate::scanner::GameServer;
 // When number == 0 pop a 0 terminated string
 
 fn get_save_path() -> std::path::PathBuf {
-    let proj_dirs = directories::ProjectDirs::from("com", "madone", "serverbrowser")
-        .expect("Could not find config directory");
-    let config_dir = proj_dirs.config_dir();
-    let _ = std::fs::create_dir_all(config_dir);
-    config_dir.join("favorites.json")
+    #[cfg(target_os = "android")]
+    {
+        let config_dir = std::path::PathBuf::from("/data/user/0/com.madone.lan_game_scan/files");
+
+        std::fs::create_dir_all(&config_dir).expect("Could not create Android app data directory");
+
+        return config_dir.join("favorites.json");
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        let proj_dirs = directories::ProjectDirs::from("com", "madone", "serverbrowser")
+            .expect("Could not find config directory");
+
+        let config_dir = proj_dirs.config_dir();
+
+        std::fs::create_dir_all(config_dir).expect("Could not create config directory");
+
+        config_dir.join("favorites.json")
+    }
 }
 
 pub fn save_to_disk(favs: &HashMap<SocketAddr, GameServer>) {
