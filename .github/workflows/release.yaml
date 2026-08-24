@@ -14,6 +14,10 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+
+  # ============================================================
+  # Linux x86_64
+  # ============================================================
   linux:
     name: Linux x86_64
     runs-on: ubuntu-24.04
@@ -70,6 +74,9 @@ jobs:
           cp target/dx/lan_game_scan/bundle/linux/deb/*.deb release/
           cp target/dx/lan_game_scan/bundle/linux/rpm/*.rpm release/
 
+      # --------------------------------------------------------
+      # Flatpak
+      # --------------------------------------------------------
       - name: Install GNOME Flatpak runtime
         run: |
           flatpak remote-add --if-not-exists \
@@ -107,6 +114,9 @@ jobs:
           path: release/
 
 
+  # ============================================================
+  # Windows x86_64
+  # ============================================================
   windows:
     name: Windows x86_64
     runs-on: windows-2025
@@ -146,7 +156,9 @@ jobs:
           New-Item -ItemType Directory -Force -Path release
           New-Item -ItemType Directory -Force -Path portable
 
-          # Installer
+          # ----------------------------------------------------
+          # Windows installer
+          # ----------------------------------------------------
           $installer = Get-ChildItem `
             "target/dx/lan_game_scan/bundle/windows/nsis" `
             -Filter "*-setup.exe" `
@@ -161,7 +173,9 @@ jobs:
             $installer.FullName `
             "release/$($installer.Name)"
 
-          # Portable application
+          # ----------------------------------------------------
+          # Windows portable application
+          # ----------------------------------------------------
           $app = "target/dx/lan_game_scan/release/windows/app"
 
           if (-not (Test-Path "$app/lan_game_scan.exe")) {
@@ -181,7 +195,9 @@ jobs:
             "portable/assets" `
             -Recurse
 
+          # ----------------------------------------------------
           # Portable ZIP
+          # ----------------------------------------------------
           $version = "${{ github.ref_name }}".TrimStart("v")
 
           Compress-Archive `
@@ -196,6 +212,9 @@ jobs:
           path: release/
 
 
+  # ============================================================
+  # Android ARM64
+  # ============================================================
   android:
     name: Android ARM64
     runs-on: ubuntu-24.04
@@ -209,12 +228,18 @@ jobs:
         with:
           targets: aarch64-linux-android
 
+      # --------------------------------------------------------
+      # Java
+      # --------------------------------------------------------
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
+      # --------------------------------------------------------
+      # Android SDK
+      # --------------------------------------------------------
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
@@ -225,51 +250,119 @@ jobs:
             "build-tools;35.0.1" \
             "ndk;28.2.13676358"
 
+      # --------------------------------------------------------
+      # Android environment
+      # --------------------------------------------------------
       - name: Configure Android environment
         run: |
           echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/28.2.13676358" >> "$GITHUB_ENV"
 
+      # --------------------------------------------------------
+      # cargo-binstall
+      # --------------------------------------------------------
       - name: Install cargo-binstall
         uses: cargo-bins/cargo-binstall@main
 
+      # --------------------------------------------------------
+      # Dioxus CLI
+      # --------------------------------------------------------
       - name: Install Dioxus CLI
         run: |
           cargo binstall dioxus-cli@0.7.10 \
             --no-confirm \
             --disable-strategies compile
 
+      # --------------------------------------------------------
+      # Configure Android linker
+      # --------------------------------------------------------
+      - name: Configure Android linker
+        run: |
+          TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
+          LINKER="$TOOLCHAIN/bin/aarch64-linux-android35-clang"
+
+          echo "Android toolchain:"
+          echo "$TOOLCHAIN"
+
+          echo "Android linker:"
+          echo "$LINKER"
+
+          if [ ! -x "$LINKER" ]; then
+            echo
+            echo "ERROR: Android linker not found."
+            echo
+            echo "Available Android ARM64 linkers:"
+            ls -la "$TOOLCHAIN/bin/" | grep aarch64-linux-android || true
+            exit 1
+          fi
+
+          mkdir -p .cargo
+
+          cat > .cargo/config.toml <<EOF
+          [target.aarch64-linux-android]
+          linker = "$LINKER"
+          EOF
+
+          echo
+          echo "Cargo configuration:"
+          cat .cargo/config.toml
+
+      # --------------------------------------------------------
+      # Verify Android toolchain
+      # --------------------------------------------------------
+      - name: Verify Android toolchain
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME"
+
+          echo
+          echo "Rust targets:"
+          rustup target list --installed
+
+          echo
+          echo "Android ARM64 linker:"
+          "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android35-clang" --version
+
+          echo
+          echo "Cargo linker configuration:"
+          cat .cargo/config.toml
+
+      # --------------------------------------------------------
+      # Tool versions
+      # --------------------------------------------------------
       - name: Show tool versions
         run: |
           rustc --version
           cargo --version
           dx --version
 
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME"
-
-          "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android35-clang" --version
-
-      - name: Build Android ARM64 APK
+      # --------------------------------------------------------
+      # Build APK
+      # --------------------------------------------------------
+      - name: Build Android APK
         run: |
-          dx build \
-            --android \
-            --release \
-            --target aarch64-linux-android
+          dx build --android --release
 
+      # --------------------------------------------------------
+      # Find APK
+      # --------------------------------------------------------
       - name: Find Android APK
         run: |
           echo "Android build output:"
+
           find target/dx -type f \
             \( -name "*.apk" -o -name "*.aab" \) \
             -print
 
+      # --------------------------------------------------------
+      # Verify APK
+      # --------------------------------------------------------
       - name: Verify Android APK
         run: |
           APK=$(find target/dx -type f -name "*.apk" | head -n 1)
 
           if [ -z "$APK" ]; then
-            echo "ERROR: No APK found."
+            echo "No APK found."
             exit 1
           fi
 
@@ -278,23 +371,33 @@ jobs:
 
           echo
           echo "APK information:"
-          "$ANDROID_HOME/build-tools/35.0.1/aapt" dump badging "$APK" | head -10
+
+          "$ANDROID_HOME/build-tools/35.0.1/aapt" \
+            dump badging "$APK" |
+            head -10
 
           echo
           echo "Native libraries:"
-          unzip -l "$APK" | grep -E 'lib/.*/libmain.so'
+
+          unzip -l "$APK" |
+            grep -E 'lib/.*/libmain.so'
 
           echo
-          echo "Checking for ARM64 native library..."
+          echo "Checking for ARM64 library:"
 
-          if ! unzip -l "$APK" | grep -q 'lib/arm64-v8a/libmain.so'; then
-            echo "ERROR: APK does not contain lib/arm64-v8a/libmain.so"
-            echo "The APK was built for the wrong Android architecture."
+          if ! unzip -l "$APK" |
+            grep -q 'lib/arm64-v8a/libmain.so'; then
+
+            echo "ERROR: APK does not contain arm64-v8a/libmain.so"
             exit 1
           fi
 
-          echo "ARM64 library found successfully."
+          echo
+          echo "ARM64 APK verification successful."
 
+      # --------------------------------------------------------
+      # Prepare release artifact
+      # --------------------------------------------------------
       - name: Prepare Android release file
         run: |
           mkdir -p release
@@ -302,15 +405,20 @@ jobs:
           APK=$(find target/dx -type f -name "*.apk" | head -n 1)
 
           if [ -z "$APK" ]; then
-            echo "ERROR: No APK found."
+            echo "No APK found."
             exit 1
           fi
 
           VERSION="${GITHUB_REF_NAME#v}"
 
           cp "$APK" \
-            "release/LanGameScan_${VERSION}_arm64-v8a.apk"
+            "release/LanGameScan_${VERSION}_android_arm64.apk"
 
+          ls -lh release/
+
+      # --------------------------------------------------------
+      # Upload Android artifact
+      # --------------------------------------------------------
       - name: Upload Android artifact
         uses: actions/upload-artifact@v4
         with:
@@ -318,6 +426,9 @@ jobs:
           path: release/
 
 
+  # ============================================================
+  # GitHub Release
+  # ============================================================
   release:
     name: Create GitHub Release
     runs-on: ubuntu-24.04
@@ -331,29 +442,44 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # --------------------------------------------------------
+      # Download Linux artifacts
+      # --------------------------------------------------------
       - name: Download Linux artifacts
         uses: actions/download-artifact@v4
         with:
           name: linux-x86_64
           path: release
 
+      # --------------------------------------------------------
+      # Download Windows artifacts
+      # --------------------------------------------------------
       - name: Download Windows artifacts
         uses: actions/download-artifact@v4
         with:
           name: windows-x86_64
           path: release
 
+      # --------------------------------------------------------
+      # Download Android artifacts
+      # --------------------------------------------------------
       - name: Download Android artifacts
         uses: actions/download-artifact@v4
         with:
           name: android-arm64
           path: release
 
+      # --------------------------------------------------------
+      # Show final release files
+      # --------------------------------------------------------
       - name: Show release files
         run: |
           echo "Release files:"
           ls -lh release/
 
+      # --------------------------------------------------------
+      # Create GitHub Release
+      # --------------------------------------------------------
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
