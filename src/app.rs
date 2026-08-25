@@ -47,12 +47,14 @@ pub fn App() -> Element {
         selected_rcon: Signal::new(None),
         query_tx: Signal::new(None),
     });
-    let shutdown = use_context::<ShutdownSignal>();
 
+    // cleanup on Linux
+    let shutdown = use_context::<ShutdownSignal>();
     use_future(move || {
         let shutdown = shutdown.clone();
 
         async move {
+            println!("[SHUTDOWN] Shutdown worker started");
             shutdown.0.notified().await;
 
             println!("[SHUTDOWN] Shutdown requested");
@@ -74,6 +76,50 @@ pub fn App() -> Element {
             println!("[SHUTDOWN] RCON cleanup complete");
         }
     });
+
+    // cleanup on Android
+    use_drop(move || {
+        println!("[UI] App scope is dropping. Starting RCON cleanup...");
+
+        let sessions = state.rcon_sessions.with_mut(|sessions| {
+            sessions
+                .drain()
+                .filter_map(|(addr, session)| {
+                    let log_url = session.log_url.clone()?;
+
+                    Some((addr, session.client.clone(), log_url))
+                })
+                .collect::<Vec<_>>()
+        });
+
+        tokio::spawn(async move {
+            println!("[SHUTDOWN] Closing {} RCON connection(s)", sessions.len());
+
+            for (addr, client, log_url) in sessions {
+                let command = format!("logaddress_del_http \"{}\"", log_url);
+
+                println!(
+                    "[SHUTDOWN] Sending cleanup command to {}: {}",
+                    addr, command
+                );
+
+                let mut client = client.lock().await;
+
+                match client.command_no_response(&command).await {
+                    Ok(()) => {
+                        println!("[SHUTDOWN] RCON cleanup for {} successful", addr);
+                    }
+
+                    Err(error) => {
+                        println!("[SHUTDOWN] RCON cleanup for {} failed: {}", addr, error);
+                    }
+                }
+            }
+
+            println!("[SHUTDOWN] RCON cleanup complete");
+        });
+    });
+
     let connect_rcon = Callback::new(move |(addr, password): (SocketAddr, String)| {
         let mut state = state;
 
