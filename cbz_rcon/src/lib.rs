@@ -141,14 +141,35 @@ impl RconClient {
 
         self.stream = Some(stream);
 
+        // SERVERDATA_AUTH
         let packet = RconPacket::new(99, 3, self.password.clone());
 
         self.send_packet(&packet).await?;
 
         let response = self.receive_packet().await?;
 
+        println!(
+            "[RCON] Auth response: id={}, type={}, body={:?}",
+            response.id, response.packet_type, response.body
+        );
+
+        // Source RCON authentication failure is indicated by ID -1.
         if response.id == -1 {
             self.stream = None;
+            return Err(RconError::AuthenticationFailed);
+        }
+
+        // We expect SERVERDATA_AUTH_RESPONSE (type 2).
+        if response.packet_type != 2 {
+            self.stream = None;
+
+            return Err(RconError::AuthenticationFailed);
+        }
+
+        // We expect our authentication request ID back.
+        if response.id != 99 {
+            self.stream = None;
+
             return Err(RconError::AuthenticationFailed);
         }
 
@@ -164,19 +185,47 @@ impl RconClient {
     }
 
     pub async fn command(&mut self, command: &str) -> Result<String, RconError> {
+        println!("[RCON DEBUG] command(): sending '{}'", command);
+
         let packet = RconPacket::new(1, 2, command);
+
+        println!("[RCON DEBUG] command(): calling send_packet()");
 
         self.send_packet(&packet).await?;
 
+        println!("[RCON DEBUG] command(): send_packet() returned");
+
+        println!("[RCON DEBUG] command(): calling receive_packet()");
+
         let response = self.receive_packet().await?;
+
+        println!("[RCON DEBUG] command(): receive_packet() returned");
 
         Ok(response.body)
     }
 
+    pub async fn command_no_response(&mut self, command: &str) -> Result<(), RconError> {
+        let packet = RconPacket::new(1, 2, command);
+
+        self.send_packet(&packet).await
+    }
+
     async fn send_packet(&mut self, packet: &RconPacket) -> Result<(), RconError> {
+        println!("[RCON DEBUG] send_packet(): entered");
+
         let stream = self.stream.as_mut().ok_or(RconError::NotConnected)?;
 
-        stream.write_all(&packet.to_bytes()).await?;
+        println!("[RCON DEBUG] send_packet(): stream available");
+
+        let bytes = packet.to_bytes();
+
+        println!("[RCON DEBUG] send_packet(): writing {} bytes", bytes.len());
+
+        timeout(Duration::from_secs(3), stream.write_all(&bytes))
+            .await
+            .map_err(|_| RconError::Timeout)??;
+
+        println!("[RCON DEBUG] send_packet(): write completed");
 
         Ok(())
     }
@@ -186,7 +235,9 @@ impl RconClient {
 
         let mut size_buf = [0u8; 4];
 
-        stream.read_exact(&mut size_buf).await?;
+        timeout(Duration::from_secs(3), stream.read_exact(&mut size_buf))
+            .await
+            .map_err(|_| RconError::Timeout)??;
 
         let size = i32::from_le_bytes(size_buf);
 
@@ -196,7 +247,9 @@ impl RconClient {
 
         let mut payload = vec![0u8; size as usize];
 
-        stream.read_exact(&mut payload).await?;
+        timeout(Duration::from_secs(3), stream.read_exact(&mut payload))
+            .await
+            .map_err(|_| RconError::Timeout)??;
 
         let mut packet = Vec::with_capacity(4 + payload.len());
 

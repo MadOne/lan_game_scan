@@ -1,7 +1,7 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use cbz_rcon::{RconClient, RconStatus};
-use dioxus::prelude::*;
+use dioxus::{core::Task, prelude::*};
 use live_log::{
     http_catcher::LiveLog,
     parser::{LogEvent, ParsedLine, Team},
@@ -31,6 +31,7 @@ pub struct RconSession {
     // Live log processing for this server
     // -------------------------------------------------------------------------
     pub live_log: LiveLog,
+    pub log_url: Option<String>,
 
     // -------------------------------------------------------------------------
     // Reactive session state
@@ -45,6 +46,7 @@ pub struct RconSession {
     pub team_name_t: Signal<String>,
     pub max_rounds: Signal<u8>,
     pub need_attention: Signal<bool>,
+    live_log_task: Option<Task>,
 }
 
 impl RconSession {
@@ -77,6 +79,8 @@ impl RconSession {
 
             max_rounds: Signal::new(0),
             need_attention: Signal::new(false),
+            log_url: None,
+            live_log_task: None,
         }
     }
 
@@ -155,7 +159,7 @@ impl RconSession {
         {
             return false;
         }
-
+        /*
         if !self
             .send_rcon_command(
                 "logaddress_delall_http",
@@ -166,8 +170,9 @@ impl RconSession {
         {
             return false;
         }
-
+        */
         let command = format!("logaddress_add_http \"{}\"", log_url);
+        self.log_url = Some(log_url.clone());
 
         if !self
             .send_rcon_command(
@@ -213,10 +218,16 @@ impl RconSession {
         success_prefix: &str,
         error_prefix: &str,
     ) -> bool {
+        println!("[RCON DEBUG] Waiting for client lock: {}", command);
+
         let mut client = self.client.lock().await;
+
+        println!("[RCON DEBUG] Client lock acquired: {}", command);
 
         match client.command(command).await {
             Ok(response) => {
+                println!("[RCON DEBUG] Command returned successfully");
+
                 self.push_log(RconLogEvent::RconResponse(format!(
                     "{}{}",
                     success_prefix, response
@@ -226,6 +237,8 @@ impl RconSession {
             }
 
             Err(error) => {
+                println!("[RCON DEBUG] Command returned error: {}", error);
+
                 self.push_log(RconLogEvent::Info(format!("{}{}", error_prefix, error)));
 
                 false
@@ -411,7 +424,7 @@ impl RconSession {
         let need_attention = session.need_attention;
         let client = session.client.clone();
 
-        spawn(async move {
+        let live_log_task = spawn(async move {
             Self::process_live_log(
                 receiver,
                 client,
@@ -426,6 +439,7 @@ impl RconSession {
             )
             .await;
         });
+        session.live_log_task = Some(live_log_task);
 
         session.push_log(RconLogEvent::Info("[RCON] Session created.".to_string()));
 
@@ -488,6 +502,40 @@ impl RconSession {
                 }
             }
         });
+    }
+
+    pub async fn close(&mut self) -> bool {
+        println!("[SHUTDOWN] RconSession::close() entered");
+
+        if let Some(task) = self.live_log_task.take() {
+            println!("[SHUTDOWN] Stopping LiveLog task");
+
+            task.cancel();
+
+            println!("[SHUTDOWN] LiveLog task stopped");
+        }
+
+        let Some(log_url) = self.log_url.clone() else {
+            println!("[SHUTDOWN] No log URL");
+            return true;
+        };
+
+        let command = format!("logaddress_del_http \"{}\"", log_url);
+
+        println!("[SHUTDOWN] Sending cleanup command: {}", command);
+
+        let mut client = self.client.lock().await;
+        match client.command_no_response(&command).await {
+            Ok(()) => {
+                println!("[SHUTDOWN] Cleanup command sent successfully");
+                true
+            }
+
+            Err(error) => {
+                println!("[SHUTDOWN] Cleanup command failed: {}", error);
+                false
+            }
+        }
     }
 }
 

@@ -12,13 +12,16 @@ mod misc;
 pub mod scanner;
 mod state;
 
+use crate::app::{App, ShutdownSignal};
 use crate::scanner::*;
 use crate::server::GameServer;
 
-use app::App;
 use dioxus::desktop::tao::window::Icon;
-use dioxus::desktop::{Config, LogicalSize, WindowBuilder};
+use dioxus::desktop::{tao, Config, LogicalSize, WindowBuilder, WindowCloseBehaviour};
 use dioxus::prelude::*;
+
+use std::sync::Arc;
+use tokio::sync::Notify;
 
 // --- ROUTING ---
 
@@ -45,7 +48,26 @@ fn main() {
         .with_inner_size(LogicalSize::new(1200.0, 800.0))
         .with_window_icon(icon);
 
+    let shutdown = Arc::new(Notify::new());
+    let shutdown_handler = shutdown.clone();
+
+    let config = Config::new()
+        .with_window(window)
+        .with_close_behaviour(WindowCloseBehaviour::WindowHides)
+        .with_custom_event_handler(move |event, _event_loop| {
+            if let tao::event::Event::WindowEvent {
+                event: tao::event::WindowEvent::CloseRequested,
+                ..
+            } = event
+            {
+                println!("[SHUTDOWN] Window close requested");
+
+                shutdown_handler.notify_one();
+            }
+        });
+
     LaunchBuilder::desktop()
-        .with_cfg(Config::new().with_window(window))
+        .with_context(ShutdownSignal(shutdown))
+        .with_cfg(config)
         .launch(App);
 }

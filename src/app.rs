@@ -13,6 +13,10 @@ use std::{
     collections::HashMap,
     time::{Duration, SystemTime},
 };
+
+use std::sync::Arc;
+use tokio::sync::Notify;
+
 const FAVICON: Asset = asset!("/assets/favicon.ico");
 const MAIN_CSS: Asset = asset!("/assets/main.css");
 const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
@@ -32,6 +36,9 @@ pub enum Route {
     RconTab {},
 }
 
+#[derive(Clone)]
+pub struct ShutdownSignal(pub Arc<Notify>);
+
 #[component]
 pub fn App() -> Element {
     let mut state = use_context_provider(|| AppState {
@@ -39,6 +46,33 @@ pub fn App() -> Element {
         rcon_sessions: Signal::new(HashMap::new()),
         selected_rcon: Signal::new(None),
         query_tx: Signal::new(None),
+    });
+    let shutdown = use_context::<ShutdownSignal>();
+
+    use_future(move || {
+        let shutdown = shutdown.clone();
+
+        async move {
+            shutdown.0.notified().await;
+
+            println!("[SHUTDOWN] Shutdown requested");
+
+            let sessions = state
+                .rcon_sessions
+                .with_mut(|sessions| std::mem::take(sessions));
+
+            println!("[SHUTDOWN] Closing {} RCON session(s)", sessions.len());
+
+            for (addr, mut session) in sessions {
+                println!("[SHUTDOWN] Closing RCON session {}", addr);
+
+                let success = session.close().await;
+
+                println!("[SHUTDOWN] RCON session {} closed: {}", addr, success);
+            }
+
+            println!("[SHUTDOWN] RCON cleanup complete");
+        }
     });
     let connect_rcon = Callback::new(move |(addr, password): (SocketAddr, String)| {
         let mut state = state;
@@ -153,17 +187,6 @@ pub fn App() -> Element {
             }
         }
     });
-
-    // ------------------------------------------------------------
-    // 3. LIVE LOG
-    //
-    // There is NO global HTTP catcher anymore.
-    //
-    // Each RCON login creates its own LiveLog instance.
-    //
-    // The receiver belonging to that LiveLog is consumed by the
-    // login task and routed directly into the matching RCON session.
-    // ------------------------------------------------------------
 
     rsx! {
         document::Link {

@@ -19,3 +19,7 @@ icon = ["assets/icon.png"]
 category = "Network"
 short_description = "LAN Game Server Browser"
 long_description = "Discover and browse game servers on your local network."
+
+
+[android]
+icon = ["assets/icon.png"]

@@ -125,15 +125,25 @@ pub fn RconTab() -> Element {
 
                                         onclick: move |event| {
                                             event.stop_propagation();
-
-                                            state.rcon_sessions.with_mut(|sessions| {
-                                                sessions.remove(&addr_val);
+                                            let session = state.rcon_sessions.with_mut(|sessions| {
+                                                sessions.remove(&addr_val)
                                             });
+
 
                                             if state.selected_rcon.read().as_ref()
                                                 == Some(&addr_val)
                                             {
                                                 state.selected_rcon.set(None);
+                                            }
+                                            if let Some(mut session) = session {
+                                                spawn(async move {
+                                                    if !session.close().await {
+                                                        eprintln!(
+                                                            "Failed to clean up RCON session for {}",
+                                                            addr_val
+                                                        );
+                                                    }
+                                                });
                                             }
                                         },
 
