@@ -46,6 +46,27 @@ pub fn RconOverview(
     let mut map_input = use_signal(String::new);
     let mut chat_input = use_signal(String::new);
 
+    // ------------------------------------------------------------
+    // Mobile chat state
+    // ------------------------------------------------------------
+
+    let mut show_mobile_chat = use_signal(|| false);
+
+    // Number of log entries that were already seen while the chat
+    // was open. We use the log length so this does not depend on
+    // the internal structure of RconLogEvent.
+    let mut seen_log_count = use_signal(|| logs().len());
+
+    let current_log_count = logs().len();
+
+    let has_unread_chat = !show_mobile_chat() && current_log_count > seen_log_count();
+
+    // Once the mobile chat is opened, everything currently in the
+    // log becomes read.
+    if show_mobile_chat() && current_log_count > seen_log_count() {
+        seen_log_count.set(current_log_count);
+    }
+
     let current_maps = maps();
 
     // -------------------------------------------------------------------------
@@ -87,7 +108,7 @@ pub fn RconOverview(
                 }
 
                 div {
-                    class: "flex items-center gap-4 mt-2",
+                    class: "flex items-center gap-4 mt-2 flex-wrap",
 
                     // ------------------------------------------------
                     // MAP
@@ -129,10 +150,6 @@ pub fn RconOverview(
                             div {
                                 class: "absolute top-8 left-0 z-50 bg-zinc-900 border border-zinc-700 rounded-lg p-3 shadow-xl w-[720px] max-w-[calc(100vw-2rem)]",
 
-                                // ----------------------------------------
-                                // AVAILABLE MAPS
-                                // ----------------------------------------
-
                                 if current_maps.is_empty() {
                                     div {
                                         class: "text-zinc-600 text-[10px] px-2 py-2 animate-pulse text-center",
@@ -141,10 +158,6 @@ pub fn RconOverview(
                                 } else {
                                     div {
                                         class: "grid grid-cols-4 gap-3",
-
-                                        // =================================================
-                                        // MAP HEADERS
-                                        // =================================================
 
                                         div {
                                             class: "col-span-2 text-blue-400 text-[10px] font-black tracking-widest text-center pb-1",
@@ -496,7 +509,7 @@ pub fn RconOverview(
             // ========================================================
 
             div {
-                class: "flex-1 min-h-0 flex",
+                class: "flex-1 min-h-0 flex relative",
 
                 // ====================================================
                 // TEAMS
@@ -611,11 +624,11 @@ pub fn RconOverview(
                 }
 
                 // ====================================================
-                // CHAT
+                // DESKTOP CHAT
                 // ====================================================
 
                 div {
-                    class: "w-[360px] shrink-0 flex flex-col min-h-0 border-l border-zinc-800",
+                    class: "hidden md:flex w-[360px] shrink-0 flex-col min-h-0 border-l border-zinc-800",
 
                     // ------------------------------------------------
                     // CHAT LOG
@@ -698,6 +711,227 @@ pub fn RconOverview(
                         }
                     }
                 }
+
+                // ====================================================
+                // MOBILE CHAT BUTTON
+                // ====================================================
+
+                button {
+                    class: "
+                        md:hidden
+                        absolute
+                        right-4
+                        bottom-4
+                        z-30
+                        px-4
+                        py-2.5
+                        bg-zinc-900
+                        border
+                        border-zinc-700
+                        rounded-lg
+                        shadow-xl
+                        text-zinc-300
+                        text-[10px]
+                        font-black
+                        tracking-widest
+                        hover:border-indigo-500
+                        hover:text-indigo-300
+                        transition-all
+                    ",
+
+                    onclick: move |_| {
+                        seen_log_count.set(logs().len());
+                        show_mobile_chat.set(true);
+                    },
+
+                    "CHAT"
+
+                    if has_unread_chat {
+                        span {
+                            class: "
+                                absolute
+                                -top-1.5
+                                -right-1.5
+                                min-w-[10px]
+                                h-[10px]
+                                rounded-full
+                                bg-red-500
+                                border-2
+                                border-zinc-950
+                                shadow
+                            ",
+                        }
+
+                        span {
+                            class: "
+                                absolute
+                                -top-7
+                                right-0
+                                px-1.5
+                                py-0.5
+                                bg-red-600
+                                rounded
+                                text-[7px]
+                                text-white
+                                font-black
+                                tracking-wider
+                                shadow
+                            ",
+                            "NEW"
+                        }
+                    }
+                }
+
+                // ====================================================
+                // MOBILE CHAT SLIDE-IN
+                // ====================================================
+
+                if show_mobile_chat() {
+                    div {
+                        class: "
+                            md:hidden
+                            absolute
+                            inset-y-0
+                            right-0
+                            z-40
+                            w-[min(360px,100%)]
+                            flex
+                            flex-col
+                            min-h-0
+                            bg-zinc-950
+                            border-l
+                            border-zinc-700
+                            shadow-2xl
+                        ",
+
+                        // ------------------------------------------------
+                        // MOBILE CHAT HEADER
+                        // ------------------------------------------------
+
+                        div {
+                            class: "
+                                shrink-0
+                                h-12
+                                flex
+                                items-center
+                                justify-between
+                                px-4
+                                bg-zinc-900
+                                border-b
+                                border-zinc-800
+                            ",
+
+                            div {
+                                class: "text-indigo-400 text-[10px] font-black tracking-widest",
+                                "CHAT"
+                            }
+
+                            button {
+                                class: "
+                                    w-8
+                                    h-8
+                                    flex
+                                    items-center
+                                    justify-center
+                                    rounded
+                                    text-zinc-500
+                                    hover:text-white
+                                    hover:bg-zinc-800
+                                    text-lg
+                                ",
+
+                                onclick: move |_| {
+                                    show_mobile_chat.set(false);
+                                    seen_log_count.set(logs().len());
+                                },
+
+                                "×"
+                            }
+                        }
+
+                        // ------------------------------------------------
+                        // CHAT LOG
+                        // ------------------------------------------------
+
+                        div {
+                            class: "flex-1 min-h-0",
+
+                            RconChat {
+                                logs: logs
+                            }
+                        }
+
+                        // ------------------------------------------------
+                        // CHAT INPUT
+                        // ------------------------------------------------
+
+                        div {
+                            class: "shrink-0 border-t border-zinc-800 bg-zinc-900 p-2",
+
+                            div {
+                                class: "flex items-center gap-2",
+
+                                input {
+                                    r#type: "text",
+                                    placeholder: "Send message...",
+                                    value: "{chat_input}",
+
+                                    class: "
+                                        flex-1 min-w-0
+                                        bg-zinc-950
+                                        border border-zinc-700
+                                        rounded
+                                        px-2 py-2
+                                        text-[10px] text-white
+                                        placeholder-zinc-600
+                                        outline-none
+                                        focus:border-indigo-500
+                                    ",
+
+                                    oninput: move |event| {
+                                        chat_input.set(event.value());
+                                    },
+
+                                    onkeydown: move |event| {
+                                        if event.key() == Key::Enter {
+                                            let message = chat_input().trim().to_string();
+
+                                            if !message.is_empty() {
+                                                on_command.call(format!("say {}", message));
+                                                chat_input.set(String::new());
+                                            }
+                                        }
+                                    }
+                                }
+
+                                button {
+                                    class: "
+                                        shrink-0
+                                        px-3
+                                        py-2
+                                        bg-indigo-600
+                                        hover:bg-indigo-500
+                                        text-white
+                                        rounded
+                                        text-[9px]
+                                        font-black
+                                    ",
+
+                                    onclick: move |_| {
+                                        let message = chat_input().trim().to_string();
+
+                                        if !message.is_empty() {
+                                            on_command.call(format!("say {}", message));
+                                            chat_input.set(String::new());
+                                        }
+                                    },
+
+                                    "SEND"
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -732,8 +966,7 @@ fn RconConfig(on_command: EventHandler<String>) -> Element {
 
             if show_config() {
                 div {
-                    class: "absolute top-8 left-0 z-50 bg-zinc-900 border border-zinc-700 rounded-lg p-3 shadow-xl w-[520px] max-w-[calc(100vw-2rem)]",
-
+                   class: "absolute top-8 left-1/2 -translate-x-1/2 z-50 bg-zinc-900 border border-zinc-700 rounded-lg p-3 shadow-xl w-[520px] max-w-[calc(100vw-2rem)]",
                     div {
                         class: "text-indigo-400 text-[10px] font-black tracking-widest pb-2 mb-3 border-b border-zinc-800",
                         "MATCH CONFIG"

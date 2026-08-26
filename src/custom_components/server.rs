@@ -24,55 +24,38 @@ fn ServerTable(
 
     rsx! {
         div {
-            class: "flex-1 overflow-auto border border-zinc-800 rounded-xl bg-zinc-900/30 shadow-inner scrollbar-thin",
+            class: "flex-1 min-h-0 overflow-auto border border-zinc-800 rounded-xl bg-zinc-900/30 shadow-inner scrollbar-thin",
 
             table {
-                class: "w-full text-left border-collapse table-fixed",
+                class: "w-full text-left border-collapse table-fixed min-w-[320px]",
 
                 thead {
                     class: "sticky top-0 bg-zinc-900 text-zinc-500 text-[10px] uppercase tracking-widest z-10",
 
                     tr {
-                        th {
-                            class: "p-4 text-center w-24",
-                            "Action"
-                        }
+                        // Action: Keep
+                        th { class: "p-4 text-center w-16 md:w-20", "Action" }
 
-                        th {
-                            class: "p-4 text-center w-12",
-                            title: "Password protected",
-                            "🔒"
-                        }
+                        // 🔒: Hidden on mobile
+                        th { class: "hidden md:table-cell p-4 text-center w-10", "🔒" }
 
-                        th {
-                            class: "p-4 w-44",
-                            "Address"
-                        }
+                        // Address: Hidden on mobile
+                        th { class: "hidden md:table-cell p-4 w-40", "Address" }
 
-                        th {
-                            class: "p-4 w-32",
-                            "Game"
-                        }
+                        // Game: Hidden on mobile/tablet
+                        th { class: "hidden lg:table-cell p-4 w-28", "Game" }
 
-                        th {
-                            class: "p-4",
-                            "Server Name"
-                        }
+                        // Server Name: Flexible
+                        th { class: "p-4 w-auto", "Server Name" }
 
-                        th {
-                            class: "p-4 w-40",
-                            "Map"
-                        }
+                        // Map: Hidden on small phones
+                        th { class: "hidden sm:table-cell p-4 w-28 md:w-36", "Map" }
 
-                        th {
-                            class: "p-4 text-center w-28",
-                            "Players"
-                        }
+                        // Players: Keep
+                        th { class: "p-4 text-center w-16 md:w-24", "Players" }
 
-                        th {
-                            class: "p-4 text-right w-24",
-                            "Ping"
-                        }
+                        // Ping: Hidden on mobile
+                        th { class: "hidden md:table-cell p-4 text-right w-20", "Ping" }
                     }
                 }
 
@@ -108,18 +91,14 @@ fn ServerRow(
     mut selection: Signal<Option<SocketAddr>>,
 ) -> Element {
     let mut state = use_context::<AppState>();
-
     let addr = srv.socket_addr;
-
     let is_selected = selection() == Some(addr);
-
     let is_fav = state
         .servers
         .read()
         .get(&addr)
         .map(|s| s.is_favorite)
         .unwrap_or(false);
-
     let is_online = srv.ping.is_some();
 
     let row_cls = if is_selected {
@@ -133,9 +112,8 @@ fn ServerRow(
     let ping_txt = if is_online {
         format!("{}ms", srv.ping.unwrap())
     } else {
-        "OFFLINE".to_string()
+        "OFF".to_string()
     };
-
     let hostname_color_cls = if is_online {
         "text-zinc-200"
     } else {
@@ -145,24 +123,14 @@ fn ServerRow(
     rsx! {
         tr {
             class: "cursor-pointer transition-colors {row_cls}",
+            onclick: move |_| { selection.set(Some(addr)); },
 
-            onclick: move |_| {
-                selection.set(Some(addr));
-            },
-
-            // ------------------------------------------------
             // ACTION
-            // ------------------------------------------------
-
-            td {
-                class: "p-4 text-center w-24",
-
+            td { class: "p-4 text-center",
                 div {
-                    class: "text-lg transition-transform active:scale-125 inline-block",
-
+                    class: "text-base transition-transform active:scale-125 inline-block",
                     onclick: move |e| {
                         e.stop_propagation();
-
                         state.servers.with_mut(|m| {
                             if let Some(s) = m.get_mut(&addr) {
                                 s.is_favorite = !s.is_favorite;
@@ -170,127 +138,55 @@ fn ServerRow(
                             }
                         });
                     },
-
                     if is_fav {
-                        span {
-                            class: "text-yellow-500 drop-shadow-md",
-                            "★"
-                        }
+                        span { class: "text-yellow-500", "★" }
                     } else {
-                        span {
-                            class: "text-zinc-800 hover:text-yellow-500/40",
-                            "☆"
-                        }
+                        span { class: "text-zinc-800 hover:text-yellow-500/40", "☆" }
                     }
                 }
             }
 
-            // ------------------------------------------------
-            // PASSWORD
-            // ------------------------------------------------
-
-            td {
-                class: "p-4 text-center w-12",
-
+            // PASSWORD (Hidden on mobile)
+            td { class: "hidden md:table-cell p-4 text-center",
                 if srv.has_password {
-                    span {
-                        class: "text-zinc-400 text-sm",
-                        title: "Password protected",
-                        "🔒"
-                    }
+                    span { class: "text-zinc-400 text-sm", "🔒" }
                 } else {
-                    span {
-                        class: "text-zinc-800 text-sm",
-                        "·"
-                    }
+                    span { class: "text-zinc-800 text-sm", "·" }
                 }
             }
 
-            // ------------------------------------------------
-            // ADDRESS
-            // ------------------------------------------------
+            // ADDRESS (Hidden on mobile)
+            td { class: "hidden md:table-cell p-4 font-mono text-xs opacity-70 truncate", "{addr}" }
 
-            td {
-                class: "p-4 font-mono text-xs opacity-70 truncate",
-                "{addr}"
-            }
-
-            // ------------------------------------------------
-            // GAME
-            // ------------------------------------------------
-
-            td {
-                class: "p-4 truncate",
-
+            // GAME (Hidden on mobile/tablet)
+            td { class: "hidden lg:table-cell p-4 truncate",
                 span {
-                    class: "bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded text-[10px] font-bold uppercase",
+                    class: "bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded text-[9px] font-bold uppercase",
                     "{srv.game.clone().unwrap_or_else(|| \"---\".into())}"
                 }
             }
 
-            // ------------------------------------------------
-            // SERVER NAME
-            // ------------------------------------------------
-
-            td {
-                class: "p-4 font-semibold truncate {hostname_color_cls}",
+            // SERVER NAME (Flexible)
+            td { class: "p-4 font-semibold truncate {hostname_color_cls}",
                 "{srv.hostname.clone().unwrap_or_default()}"
             }
 
-            // ------------------------------------------------
-            // MAP
-            // ------------------------------------------------
-
-            td {
-                class: "p-4 text-sm opacity-60 truncate",
+            // MAP (Hidden on very small phones)
+            td { class: "hidden sm:table-cell p-4 text-sm opacity-60 truncate",
                 "{srv.map.clone().unwrap_or_default()}"
             }
 
-            // ------------------------------------------------
             // PLAYERS
-            // ------------------------------------------------
-
-            td {
-                class: "p-4 text-sm text-center opacity-70",
-
+            td { class: "p-4 text-xs text-center opacity-70",
                 "{srv.players.unwrap_or(0)}/{srv.players_max.unwrap_or(0)}"
-
-                if let Some(b) = srv.bots {
-                    if b > 0 {
-                        {
-                            let bot_label =
-                                if b == 1 { "Bot" } else { "Bots" };
-
-                            rsx! {
-                                br {}
-
-                                span {
-                                    class: "text-[10px] text-zinc-500",
-                                    "({b} {bot_label})"
-                                }
-                            }
-                        }
-                    }
-                }
             }
 
-            // ------------------------------------------------
-            // PING
-            // ------------------------------------------------
-
-            td {
-                class: "p-4 text-right font-mono",
-
+            // PING (Hidden on mobile)
+            td { class: "hidden md:table-cell p-4 text-right font-mono",
                 if is_online {
-                    span {
-                        class: "text-emerald-500 font-bold",
-                        "{ping_txt}"
-                    }
+                    span { class: "text-emerald-500 font-bold text-xs", "{ping_txt}" }
                 } else {
-                    span {
-                        class: "text-zinc-700 text-[10px] font-black border border-zinc-800 px-1.5 py-0.5 rounded",
-                        "{ping_txt}"
-                    }
+                    span { class: "text-zinc-700 text-[10px]", "{ping_txt}" }
                 }
             }
         }
@@ -330,16 +226,11 @@ pub fn LAN() -> Element {
 
     rsx! {
         div {
-            class: "h-full flex flex-col p-6 space-y-6 bg-zinc-950 overflow-hidden",
+            class: "h-full flex flex-col p-4 md:p-6 bg-zinc-950 overflow-hidden",
 
-            div {
-                class: "flex justify-between items-center",
-
-                h2 {
-                    class: "text-lg font-bold text-white tracking-tight",
-                    "📡 LAN"
-                }
-            }
+            // ------------------------------------------------
+            // SERVER LIST
+            // ------------------------------------------------
 
             ServerTable {
                 mode: TableMode::Lan,
@@ -347,9 +238,18 @@ pub fn LAN() -> Element {
                 selection: selection
             }
 
+            // ------------------------------------------------
+            // SERVER DETAILS
+            // ------------------------------------------------
+
             if let Some(srv) = selected {
-                ServerDetails {
-                    srv: srv
+                div {
+                    class: "shrink-0 mt-4",
+
+                    ServerDetails {
+                        key: "{srv.socket_addr}",
+                        srv: srv
+                    }
                 }
             }
         }
@@ -380,15 +280,24 @@ pub fn Favourites() -> Element {
 
     rsx! {
         div {
-            class: "h-full flex flex-col p-6 space-y-6 bg-zinc-950 overflow-hidden",
+            class: "h-full flex flex-col p-4 md:p-6 bg-zinc-950 overflow-hidden",
+
+            // ------------------------------------------------
+            // SERVER LIST
+            // ------------------------------------------------
+
+            ServerTable {
+                mode: TableMode::Fav,
+                items: items,
+                selection: selection
+            }
+
+            // ------------------------------------------------
+            // ADD SERVER
+            // ------------------------------------------------
 
             div {
-                class: "flex justify-between items-center",
-
-                h2 {
-                    class: "text-lg font-bold text-white tracking-tight",
-                    "⭐ FAVOURITES"
-                }
+                class: "shrink-0 flex justify-end pt-2",
 
                 button {
                     class: "bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold px-4 py-2 rounded-lg",
@@ -405,21 +314,32 @@ pub fn Favourites() -> Element {
                 }
             }
 
+            // ------------------------------------------------
+            // ADD SERVER FORM
+            // ------------------------------------------------
+
             if show_form() {
-                AddServerForm {
-                    on_close: move |_| show_form.set(false)
+                div {
+                    class: "shrink-0 mt-2",
+
+                    AddServerForm {
+                        on_close: move |_| show_form.set(false)
+                    }
                 }
             }
 
-            ServerTable {
-                mode: TableMode::Fav,
-                items: items,
-                selection: selection
-            }
+            // ------------------------------------------------
+            // SERVER DETAILS
+            // ------------------------------------------------
 
             if let Some(srv) = selected {
-                ServerDetails {
-                    srv: srv
+                div {
+                    class: "shrink-0 mt-4",
+
+                    ServerDetails {
+                        key: "{srv.socket_addr}",
+                        srv: srv
+                    }
                 }
             }
         }
@@ -438,10 +358,10 @@ fn AddServerForm(on_close: EventHandler<()>) -> Element {
 
     rsx! {
         div {
-            class: "bg-zinc-900 border border-zinc-800 p-4 rounded-xl flex gap-4 animate-in fade-in zoom-in-95",
+            class: "bg-zinc-900 border border-zinc-800 p-4 rounded-xl flex flex-wrap gap-4 animate-in fade-in zoom-in-95",
 
             input {
-                class: "flex-1 bg-zinc-950 border border-zinc-700 rounded-lg p-2 text-sm text-white outline-none focus:border-indigo-500",
+                class: "flex-1 min-w-[180px] bg-zinc-950 border border-zinc-700 rounded-lg p-2 text-sm text-white outline-none focus:border-indigo-500",
 
                 placeholder: "IP:PORT",
 
@@ -506,10 +426,6 @@ fn AddServerForm(on_close: EventHandler<()>) -> Element {
 // SERVER DETAILS
 // ============================================================
 
-// ============================================================
-// SERVER DETAILS
-// ============================================================
-
 #[component]
 fn ServerDetails(srv: GameServer) -> Element {
     let nav = use_navigator();
@@ -519,33 +435,41 @@ fn ServerDetails(srv: GameServer) -> Element {
     let addr = srv.socket_addr;
 
     // ------------------------------------------------------------
-    // GAME SERVER PASSWORD
+    // LOCAL PASSWORD EDITING STATE
     // ------------------------------------------------------------
-    //
-    // This is LOCAL EDITING STATE.
-    //
-    // It is initialized from the persisted GameServer.password,
-    // but changing the input does NOT modify the server state.
-    //
-    // The persisted password is only changed when SAVE is pressed.
-    //
 
     let mut server_password = use_signal(|| srv.password.clone().unwrap_or_default());
 
-    // ------------------------------------------------------------
-    // RCON PASSWORD
-    // ------------------------------------------------------------
-    //
-    // Completely independent from the game-server password.
-    // Never persisted here.
-    //
-
-    let mut rcon_password = use_signal(String::new);
-
-    let mut show_login = use_signal(|| false);
+    let mut rcon_password = use_signal(|| srv.rcon.clone().unwrap_or_default());
 
     // ------------------------------------------------------------
-    // Current RCON session
+    // KEEP LOCAL PASSWORDS IN SYNC WITH SELECTED SERVER
+    // ------------------------------------------------------------
+
+    use_effect({
+        let password = srv.password.clone().unwrap_or_default();
+
+        move || {
+            server_password.set(password.clone());
+        }
+    });
+
+    use_effect({
+        let password = srv.rcon.clone().unwrap_or_default();
+
+        move || {
+            rcon_password.set(password.clone());
+        }
+    });
+
+    // ------------------------------------------------------------
+    // RCON CONNECT CALLBACK
+    // ------------------------------------------------------------
+
+    let connect_rcon = use_context::<Callback<(SocketAddr, String)>>();
+
+    // ------------------------------------------------------------
+    // CURRENT RCON SESSION
     // ------------------------------------------------------------
 
     let status = state
@@ -557,8 +481,10 @@ fn ServerDetails(srv: GameServer) -> Element {
 
     let is_authenticated = status == RconStatus::Authenticated;
 
+    let is_connecting = status == RconStatus::Connecting;
+
     // ------------------------------------------------------------
-    // Server information
+    // SERVER INFORMATION
     // ------------------------------------------------------------
 
     let status_val = if is_online {
@@ -574,315 +500,392 @@ fn ServerDetails(srv: GameServer) -> Element {
     );
 
     // ------------------------------------------------------------
-    // Password state
+    // SAVED PASSWORD STATE
     // ------------------------------------------------------------
 
     let saved_password = srv.password.clone().unwrap_or_default();
 
     let password_changed = server_password() != saved_password;
 
-    rsx! {
-        div {
-            class: "bg-zinc-900 border border-zinc-800 rounded-xl p-6 shadow-2xl min-h-36 flex flex-col justify-center animate-in slide-in-from-bottom-4 duration-500",
+    let saved_rcon_password = srv.rcon.clone().unwrap_or_default();
 
+    let rcon_password_changed = rcon_password() != saved_rcon_password;
+
+    rsx! {
             div {
-                class: "flex justify-between items-center",
+                class: "bg-zinc-900 border border-zinc-800 rounded-xl p-4 md:p-6 shadow-2xl min-h-36 flex flex-col justify-center animate-in slide-in-from-bottom-4 duration-500",
+
+                // ========================================================
+                // HEADER
+                // ========================================================
 
                 div {
-                    h2 {
-                        class: "text-xl font-black text-white tracking-tighter uppercase truncate max-w-md",
-                        "{srv.hostname.clone().unwrap_or_default()}"
-                    }
+                    class: "flex justify-between items-center",
 
                     div {
-                        class: "flex items-center gap-2 mt-0.5 text-zinc-500 font-mono text-xs",
-
-                        p {
-                            "{addr}"
+                        h2 {
+                            class: "text-xl font-black text-white tracking-tighter uppercase truncate max-w-md",
+                            "{srv.hostname.clone().unwrap_or_default()}"
                         }
 
-                        if srv.has_password {
-                            span {
-                                class: "text-zinc-400",
-                                title: "Password protected",
-                                "🔒"
+                        div {
+                            class: "flex items-center gap-2 mt-0.5 text-zinc-500 font-mono text-xs",
+
+                            p {
+                                "{addr}"
                             }
-                        }
 
-                        if !is_online {
-                            span {
-                                class: "text-[9px] bg-red-900/20 text-red-500 px-1.5 py-0.5 rounded font-bold border border-red-900/30 uppercase",
-                                "Offline"
+                            if srv.has_password {
+                                span {
+                                    class: "text-zinc-400",
+                                    title: "Password protected",
+                                    "🔒"
+                                }
+                            }
+
+                            if !is_online {
+                                span {
+                                    class: "text-[9px] bg-red-900/20 text-red-500 px-1.5 py-0.5 rounded font-bold border border-red-900/30 uppercase",
+                                    "Offline"
+                                }
                             }
                         }
                     }
                 }
 
-                div {
-                    class: "flex gap-2",
-
-                    // ------------------------------------------------
-                    // JOIN
-                    // ------------------------------------------------
-
-                    button {
-                        class: "bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2 rounded-lg font-bold text-xs",
-
-                        onclick: {
-                            let addr = addr;
-
-                            move |_| {
-                                let password = server_password();
-
-                                spawn(async move {
-                                    connect_to_server(
-                                        addr.to_string(),
-                                        password,
-                                    )
-                                    .await;
-                                });
-                            }
-                        },
-
-                        "JOIN"
-                    }
-
-                    // ------------------------------------------------
-                    // RCON
-                    // ------------------------------------------------
-
-                    if is_authenticated {
-                        button {
-                            class: "bg-emerald-700 hover:bg-emerald-600 text-white px-5 py-2 rounded-lg font-bold text-xs flex items-center gap-2",
-
-                            onclick: move |_| {
-                                nav.push(Route::RconTab {});
-                            },
-
-                            span {
-                                "●"
-                            }
-
-                            "RCON"
-                        }
-                    } else {
-                        button {
-                            class: "bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-5 py-2 rounded-lg font-bold border border-zinc-700 flex items-center gap-2 text-xs",
-
-                            onclick: move |_| {
-                                show_login.set(true);
-                            },
-
-                            span {
-                                "⌨"
-                            }
-
-                            "RCON"
-                        }
-                    }
-                }
-            }
-
-            // ========================================================
-            // GAME SERVER PASSWORD
-            // ========================================================
-
-            div {
-                class: "mt-4 pt-4 border-t border-zinc-800",
+                // ========================================================
+                // PASSWORDS
+                // ========================================================
 
                 div {
-                    class: "flex items-center gap-3",
+                    class: "mt-4 pt-4 border-t border-zinc-800 flex flex-wrap gap-x-8 gap-y-4",
 
-                    span {
-                        class: "text-[10px] text-zinc-500 font-black uppercase tracking-widest whitespace-nowrap",
-                        "SERVER PASSWORD"
-                    }
+                    // ====================================================
+                    // SERVER PASSWORD
+                    // ====================================================
 
-                    input {
-                        r#type: "password",
+                    div {
+                        class: "hidden md:block flex-1 min-w-[300px]",
 
-                        class: "flex-1 max-w-xs bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-indigo-500",
+                        div {
+                            class: "flex flex-wrap items-center gap-3",
 
-                        placeholder: if srv.has_password {
-                            "Enter server password"
-                        } else {
-                            "No password"
-                        },
+                            span {
+                                class: "text-[10px] text-zinc-500 font-black uppercase tracking-widest whitespace-nowrap",
+                                "SERVER PASSWORD"
+                            }
 
-                        value: "{server_password}",
+                            input {
+                                r#type: "password",
 
-                        oninput: move |event| {
-                            // IMPORTANT:
-                            //
-                            // Only update the local editing signal.
-                            // Do NOT modify state.servers here.
-                            server_password.set(event.value());
-                        }
-                    }
+                                class: "flex-1 min-w-[140px] max-w-xs bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-indigo-500",
 
-                    // ------------------------------------------------
-                    // SAVE
-                    // ------------------------------------------------
+                                placeholder: if srv.has_password {
+                                    "Enter server password"
+                                } else {
+                                    "No password"
+                                },
 
-                    if password_changed {
-                        button {
-                            class: "bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase",
+                                value: "{server_password}",
 
-                            onclick: move |_| {
-                                let value = server_password();
+                                oninput: move |event| {
+                                    server_password.set(event.value());
+                                }
+                            }
 
-                                state.servers.with_mut(|servers| {
-                                    if let Some(server) = servers.get_mut(&addr) {
-                                        server.password = if value.is_empty() {
-                                            None
-                                        } else {
-                                            Some(value.clone())
-                                        };
+                            if password_changed {
+                                button {
+                                    class: "bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase",
 
-                                        save_to_disk(servers);
+                                    onclick: move |_| {
+                                        let value = server_password();
+
+                                        state.servers.with_mut(|servers| {
+                                            if let Some(server) =
+                                                servers.get_mut(&addr)
+                                            {
+                                                server.password =
+                                                    if value.is_empty() {
+                                                        None
+                                                    } else {
+                                                        Some(value.clone())
+                                                    };
+
+                                                save_to_disk(servers);
+                                            }
+                                        });
+                                    },
+
+                                    "SAVE"
+                                }
+                            } else if !server_password().is_empty() {
+                                span {
+                                    class: "text-[10px] text-emerald-500 font-bold uppercase whitespace-nowrap",
+                                    "SAVED"
+                                }
+                            } else {
+                                span {
+                                    class: "text-[10px] text-zinc-700 font-bold uppercase whitespace-nowrap",
+                                    "NOT SET"
+                                }
+                            }
+
+                            if !server_password().is_empty() {
+                                button {
+                                    class: "text-[10px] text-zinc-500 hover:text-red-400 font-bold uppercase whitespace-nowrap",
+
+                                    onclick: move |_| {
+                                        server_password.set(String::new());
+                                    },
+
+                                    "CLEAR"
+                                }
+                            }
+
+                            // ------------------------------------------------
+                            // JOIN
+                            // ------------------------------------------------
+
+                            button {
+                                class: "bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase",
+
+                                onclick: {
+                                    let addr = addr;
+
+                                    move |_| {
+                                        let password = server_password();
+
+                                        spawn(async move {
+                                            connect_to_server(
+                                                addr.to_string(),
+                                                password,
+                                            )
+                                            .await;
+                                        });
                                     }
-                                });
-                            },
+                                },
 
-                            "SAVE"
-                        }
-                    } else if !server_password().is_empty() {
-                        span {
-                            class: "text-[10px] text-emerald-500 font-bold uppercase",
-                            "SAVED"
-                        }
-                    } else {
-                        span {
-                            class: "text-[10px] text-zinc-700 font-bold uppercase",
-                            "NOT SET"
+                                "JOIN"
+                            }
                         }
                     }
 
-                    // ------------------------------------------------
-                    // CLEAR
-                    // ------------------------------------------------
+                    // ====================================================
+                    // RCON PASSWORD / CONNECTION
+                    // ====================================================
 
-                    if !server_password().is_empty() {
-                        button {
-                            class: "text-[10px] text-zinc-500 hover:text-red-400 font-bold uppercase",
+                    div {
+                        class: "flex-1 min-w-[300px]",
 
-                            onclick: move |_| {
-                                server_password.set(String::new());
-                            },
+                        div {
+                            class: "flex flex-wrap items-center gap-3",
 
-                            "CLEAR"
-                        }
-                    }
-                }
-            }
-
-            // ========================================================
-            // RCON LOGIN
-            // ========================================================
-
-            if show_login() && !is_authenticated {
-                div {
-                    class: "mt-4 pt-4 border-t border-zinc-800 flex items-center gap-2",
-
-                    span {
-                        class: "text-[10px] text-zinc-500 font-black uppercase tracking-widest",
-                        "RCON PASSWORD"
-                    }
-
-                    input {
-                        r#type: "password",
-
-                        class: "flex-1 max-w-xs bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-indigo-500",
-
-                        placeholder: "Password",
-
-                        value: "{rcon_password}",
-
-                        oninput: move |event| {
-                            // ONLY RCON PASSWORD.
-                            rcon_password.set(event.value());
-                        }
-                    }
-
-                    button {
-                        class: "bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-[10px] font-black",
-
-                        onclick: {
-                            let addr = addr;
-
-                            move |_| {
-                                let password = rcon_password();
-
-                                if password.is_empty() {
-                                    return;
+                            if !is_authenticated {
+                                span {
+                                    class: "text-[10px] text-zinc-500 font-black uppercase tracking-widest whitespace-nowrap",
+                                    "RCON PASSWORD"
                                 }
 
-                                let connect_rcon =
-                                    use_context::<Callback<(SocketAddr, String)>>();
+                                input {
+                                    r#type: "password",
 
-                                connect_rcon.call((addr, password));
+                                    class: "flex-1 min-w-[140px] max-w-xs bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-indigo-500",
+
+                                    placeholder: "RCON password",
+
+                                    value: "{rcon_password}",
+
+                                    disabled: is_connecting,
+
+                                    oninput: move |event| {
+                                        rcon_password.set(event.value());
+                                    }
+                                }
+
+                                if rcon_password_changed {
+                                    button {
+                                        class: "bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase",
+
+                                        disabled: is_connecting,
+
+                                        onclick: move |_| {
+                                            let value = rcon_password();
+
+                                            state.servers.with_mut(|servers| {
+                                                if let Some(server) =
+                                                    servers.get_mut(&addr)
+                                                {
+                                                    server.rcon =
+                                                        if value.is_empty() {
+                                                            None
+                                                        } else {
+                                                            Some(value.clone())
+                                                        };
+
+                                                    save_to_disk(servers);
+                                                }
+                                            });
+                                        },
+
+                                        "SAVE"
+                                    }
+                                } else if !rcon_password().is_empty() {
+                                    span {
+                                        class: "text-[10px] text-emerald-500 font-bold uppercase whitespace-nowrap",
+                                        "SAVED"
+                                    }
+                                } else {
+                                    span {
+                                        class: "text-[10px] text-zinc-700 font-bold uppercase whitespace-nowrap",
+                                        "NOT SET"
+                                    }
+                                }
+
+                                if !rcon_password().is_empty() {
+                                    button {
+                                        class: "text-[10px] text-zinc-500 hover:text-red-400 font-bold uppercase whitespace-nowrap",
+
+                                        disabled: is_connecting,
+
+                                        onclick: move |_| {
+                                            rcon_password.set(String::new());
+                                        },
+
+                                        "CLEAR"
+                                    }
+                                }
+
+                                // ------------------------------------------------
+                                // LOGIN
+                                // ------------------------------------------------
+
+                                button {
+                                    class: if is_connecting {
+                                        "bg-zinc-700 text-zinc-500 px-4 py-2 rounded-lg text-[10px] font-black cursor-not-allowed"
+                                    } else {
+                                        "bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-[10px] font-black"
+                                    },
+
+                                    disabled: is_connecting,
+
+                                    onclick: {
+                                        let addr = addr;
+                                        let connect_rcon = connect_rcon;
+
+                                        move |_| {
+                                            if is_connecting {
+                                                return;
+                                            }
+
+                                            let password = rcon_password();
+
+                                            if password.is_empty() {
+                                                return;
+                                            }
+
+                                            state.servers.with_mut(|servers| {
+                                                if let Some(server) =
+                                                    servers.get_mut(&addr)
+                                                {
+                                                    server.rcon =
+                                                        Some(password.clone());
+
+                                                    save_to_disk(servers);
+                                                }
+                                            });
+
+                                            connect_rcon.call((addr, password));
+                                        }
+                                    },
+
+                                    if is_connecting {
+                                        "CONNECTING..."
+                                    } else {
+                                        "LOGIN"
+                                    }
+                                }
+                            } else {
+                                // ------------------------------------------------
+                                // AUTHENTICATED
+                                // ------------------------------------------------
+
+                                button {
+                                    class: "bg-emerald-700 hover:bg-emerald-600 text-white px-5 py-2 rounded-lg text-[10px] font-black uppercase flex items-center gap-2",
+
+                                    onclick: move |_| {
+                                        nav.push(Route::RconTab {});
+                                    },
+
+                                    span {
+                                        "●"
+                                    }
+
+                                    "GO TO RCON"
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ========================================================
+                // RCON STATUS
+                // ========================================================
+
+                if !is_authenticated {
+                    match status {
+                        RconStatus::Connecting => rsx! {
+                            div {
+                                class: "mt-3 text-[10px] text-blue-400 font-black uppercase tracking-widest animate-pulse",
+                                "● RCON CONNECTING..."
                             }
                         },
 
-                        "LOGIN"
+                        RconStatus::Error => rsx! {
+                            div {
+                                class: "mt-3 text-[10px] text-red-400 font-black uppercase tracking-widest",
+                                "● RCON AUTHENTICATION FAILED"
+                            }
+                        },
+
+                        _ => rsx! {}
                     }
                 }
-            }
 
-            // ========================================================
-            // RCON STATUS
-            // ========================================================
+                // ========================================================
+                // SERVER DETAILS
+                // ========================================================
 
-            if !is_authenticated {
-                match status {
-                    RconStatus::Connecting => rsx! {
-                        div {
-                            class: "mt-3 text-[10px] text-blue-400 font-black uppercase tracking-widest animate-pulse",
-                            "● RCON CONNECTING..."
-                        }
-                    },
+                // ========================================================
+    // SERVER DETAILS
+    // ========================================================
 
-                    RconStatus::Error => rsx! {
-                        div {
-                            class: "mt-3 text-[10px] text-red-400 font-black uppercase tracking-widest",
-                            "● RCON AUTHENTICATION FAILED"
-                        }
-                    },
+    div {
+        class: "hidden md:grid md:grid-cols-4 gap-6 mt-4",
 
-                    _ => rsx! {}
-                }
-            }
+        DetailBox {
+            label: "Map".to_string(),
+            value: srv.map.clone().unwrap_or_default()
+        }
 
-            // ========================================================
-            // SERVER DETAILS
-            // ========================================================
+        DetailBox {
+            label: "Engine".to_string(),
+            value: "Source / GoldSrc".to_string()
+        }
 
-            div {
-                class: "grid grid-cols-4 gap-6 mt-4",
+        DetailBox {
+            label: "Status".to_string(),
+            value: status_val
+        }
 
-                DetailBox {
-                    label: "Map".to_string(),
-                    value: srv.map.clone().unwrap_or_default()
-                }
-
-                DetailBox {
-                    label: "Engine".to_string(),
-                    value: "Source / GoldSrc".to_string()
-                }
-
-                DetailBox {
-                    label: "Status".to_string(),
-                    value: status_val
-                }
-
-                DetailBox {
-                    label: "Players".to_string(),
-                    value: player_val
-                }
-            }
+        DetailBox {
+            label: "Players".to_string(),
+            value: player_val
         }
     }
+            }
+        }
 }
+
 // ============================================================
 // DETAIL BOX
 // ============================================================
