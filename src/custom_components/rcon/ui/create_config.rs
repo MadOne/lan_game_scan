@@ -156,8 +156,8 @@ pub fn CreateConfig(
     // Teams state
     let mut ct_team_name = use_signal(String::new);
     let mut t_team_name = use_signal(String::new);
-    let mut ct_captain = use_signal(|| None::<String>);
-    let mut t_captain = use_signal(|| None::<String>);
+    //let ct_captain = use_signal(|| None::<String>);
+    //let captain = use_signal(|| None::<String>);
 
     // Manual Entry state
     let mut ct_extra_1_sid = use_signal(String::new);

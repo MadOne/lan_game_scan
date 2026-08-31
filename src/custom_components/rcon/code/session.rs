@@ -8,7 +8,10 @@ use live_log::{
 };
 
 use crate::{
-    custom_components::code::{RconPlayers, TeamScore},
+    custom_components::{
+        code::{RconPlayers, TeamScore},
+        cvar::CvarDatabase,
+    },
     network::log_receiver_ip,
 };
 
@@ -47,6 +50,7 @@ pub struct RconSession {
     pub max_rounds: Signal<u8>,
     pub need_attention: Signal<bool>,
     live_log_task: Option<Task>,
+    pub cvar_db: Option<Arc<tokio::sync::Mutex<CvarDatabase>>>,
 }
 
 impl RconSession {
@@ -81,6 +85,7 @@ impl RconSession {
             need_attention: Signal::new(false),
             log_url: None,
             live_log_task: None,
+            cvar_db: None,
         }
     }
 
@@ -261,6 +266,7 @@ impl RconSession {
         mut team_name_t: Signal<String>,
         mut max_rounds: Signal<u8>,
         mut need_attention: Signal<bool>,
+        cvar_db: Arc<tokio::sync::Mutex<CvarDatabase>>,
     ) {
         while let Some(parsed) = receiver.recv().await {
             logs.write().push(RconLogEvent::LiveLog(parsed.clone()));
@@ -334,8 +340,11 @@ impl RconSession {
                 // -----------------------------------------------------------------
                 // Maximum rounds
                 // -----------------------------------------------------------------
-                LogEvent::ServerCvar { name, value } if name == "mp_maxrounds" => {
-                    max_rounds.set(value.parse().unwrap_or(0));
+                LogEvent::ServerCvar { name, value } => {
+                    if name == "mp_maxrounds" {
+                        max_rounds.set(value.parse().unwrap_or(0));
+                    }
+                    cvar_db.lock().await.update(name, value);
                 }
 
                 // -----------------------------------------------------------------
@@ -412,8 +421,17 @@ impl RconSession {
             return None;
         }
 
-        let receiver = session.live_log.take_receiver();
+        let cvarlist = session
+            .client
+            .lock()
+            .await
+            .command("cvarlist")
+            .await
+            .expect("Failed to get cvarlist via rcon");
+        let db = CvarDatabase::new(&cvarlist);
+        session.cvar_db = Some(Arc::new(tokio::sync::Mutex::new(db)));
 
+        let receiver = session.live_log.take_receiver();
         let logs = session.logs;
         let players = session.players;
         let match_paused = session.match_paused;
@@ -423,6 +441,7 @@ impl RconSession {
         let max_rounds = session.max_rounds;
         let need_attention = session.need_attention;
         let client = session.client.clone();
+        let cvar_db = session.cvar_db.clone().expect("CVar database missing");
 
         let live_log_task = spawn(async move {
             Self::process_live_log(
@@ -436,6 +455,7 @@ impl RconSession {
                 team_name_t,
                 max_rounds,
                 need_attention,
+                cvar_db,
             )
             .await;
         });

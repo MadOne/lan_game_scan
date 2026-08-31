@@ -1,3 +1,4 @@
+use crate::custom_components::cvar::{Cvar, CvarFlag};
 use crate::{
     custom_components::{
         rcon::{
@@ -22,6 +23,12 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
     let mut visible_events = use_signal(|| LogType::all().collect::<HashSet<LogType>>());
 
     let mut filter_popup_open = use_signal(|| false);
+
+    // -------------------------------------------------------------------------
+    // Autocomplete state
+    // -------------------------------------------------------------------------
+
+    let mut suggestions = use_signal(Vec::<Cvar>::new);
 
     let sessions = state.rcon_sessions.read();
 
@@ -48,6 +55,7 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
     let paused = session.match_paused;
     let client = session.client.clone();
     let maps = session.maps;
+    let cvar_db = session.cvar_db.clone();
 
     // -------------------------------------------------------------------------
     // Server information
@@ -79,7 +87,6 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
 
     let status = status_signal();
 
-    // These are Signals<String>, not Option<String>.
     let mut pw_input = use_signal(String::new);
     let mut cmd_input = use_signal(String::new);
 
@@ -339,8 +346,6 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
                                 })
                             && selected_events.len() == essential_events.len();
 
-                        // CUSTOMIZE represents a custom filter whenever the
-                        // current selection is neither ALL, NONE, nor ESSENTIAL.
                         let customize_enabled =
                             !all_enabled
                                 && !none_enabled
@@ -482,10 +487,6 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
                                         div {
                                             class: "absolute z-50 top-full left-4 mt-2 w-80 bg-zinc-950 border border-zinc-700 rounded-lg shadow-2xl",
 
-                                            // -----------------------------------------
-                                            // POPUP HEADER
-                                            // -----------------------------------------
-
                                             div {
                                                 class: "px-4 py-3 border-b border-zinc-800 flex items-center justify-between",
 
@@ -504,10 +505,6 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
                                                     "×"
                                                 }
                                             }
-
-                                            // -----------------------------------------
-                                            // POPUP CONTENT
-                                            // -----------------------------------------
 
                                             div {
                                                 class: "p-3 max-h-80 overflow-y-auto",
@@ -563,10 +560,6 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
                                                     }
                                                 }
                                             }
-
-                                            // -----------------------------------------
-                                            // POPUP FOOTER
-                                            // -----------------------------------------
 
                                             div {
                                                 class: "px-3 py-2 border-t border-zinc-800 flex justify-between",
@@ -675,7 +668,107 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
                                 // =================================================
 
                                 div {
-                                    class: "shrink-0 border-t border-zinc-800 bg-zinc-900 p-3",
+                                    class: "relative shrink-0 border-t border-zinc-800 bg-zinc-900 p-3",
+
+                                    // =================================================
+                                    // AUTOCOMPLETE POPUP
+                                    // =================================================
+
+                                    if !suggestions.read().is_empty() {
+                                        div {
+                                            class: "absolute z-50 bottom-full left-3 right-3 mb-1 bg-zinc-950 border border-zinc-700 rounded-lg shadow-2xl overflow-visible",
+
+                                            div {
+                                                class: "px-3 py-2 border-b border-zinc-800 text-[9px] font-black tracking-widest text-zinc-600",
+
+                                                "COMMANDS"
+                                            }
+
+                                            // -------------------------------------------------
+                                            // CVar suggestions
+                                            // -------------------------------------------------
+
+                                            for suggestion in suggestions.read().iter() {
+                                                {
+                                                    let command = suggestion.name.clone();
+                                                    let value = suggestion.value.clone();
+                                                    let description = suggestion.description.clone();
+
+                                                    let flags = suggestion
+                                                        .flags
+                                                        .iter()
+                                                        .map(|flag| format!("{flag:?}"))
+                                                        .collect::<Vec<_>>()
+                                                        .join(", ");
+
+                                                    rsx! {
+                                                        div {
+                                                            class: "relative group",
+
+                                                            button {
+                                                                key: "{command}",
+
+                                                                class: "w-full text-left px-3 py-2 text-[10px] text-zinc-400 hover:bg-zinc-800 hover:text-indigo-300 transition-colors",
+
+                                                                onclick: {
+                                                                    let command = command.clone();
+
+                                                                    move |_| {
+                                                                        cmd_input.set(command.clone());
+                                                                        suggestions.set(Vec::new());
+                                                                    }
+                                                                },
+
+                                                                div {
+                                                                    class: "flex items-center gap-2",
+
+                                                                    // CVar name
+                                                                    span {
+                                                                        class: "text-indigo-300 shrink-0",
+                                                                        "{command}"
+                                                                    }
+
+                                                                    // Current value
+                                                                    span {
+                                                                        class: "text-zinc-500 truncate",
+                                                                        "{value}"
+                                                                    }
+
+                                                                    // Flags
+                                                                    span {
+                                                                        class: "ml-auto text-zinc-600 shrink-0",
+                                                                        "[{flags}]"
+                                                                    }
+                                                                }
+                                                            }
+
+                                                            // -------------------------------------------------
+                                                            // Tooltip
+                                                            // -------------------------------------------------
+
+                                                            div {
+                                                                class: "absolute z-[100] left-3 bottom-full mb-1 hidden group-hover:block w-[calc(100%-24px)] rounded-lg border border-zinc-700 bg-zinc-900 p-3 text-left shadow-2xl pointer-events-none",
+
+                                                                div {
+                                                                    class: "text-[10px] font-bold text-indigo-300 mb-1",
+                                                                    "{command}"
+                                                                }
+
+                                                                div {
+                                                                    class: "text-[10px] text-zinc-400 whitespace-normal",
+                                                                    "{description}"
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // =================================================
+                                    // COMMAND INPUT ROW
+                                    // =================================================
 
                                     div {
                                         class: "flex gap-2",
@@ -692,50 +785,102 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
 
                                             value: "{cmd_input}",
 
-                                            oninput: move |event| {
-                                                cmd_input.set(event.value());
-                                            },
+                                            oninput: {
+                                                let cvar_db = cvar_db.clone();
 
-                                            onkeydown: move |event| {
-                                                if event.key() == Key::Enter {
-                                                    let cmd = cmd_input();
+                                                move |event| {
+                                                    let input = event.value();
 
-                                                    if cmd.trim().is_empty() {
+                                                    cmd_input.set(input.clone());
+
+                                                    let query = input
+                                                        .split_whitespace()
+                                                        .next()
+                                                        .unwrap_or("")
+                                                        .to_string();
+
+                                                    if query.is_empty()
+                                                        || input.contains(char::is_whitespace)
+                                                    {
+                                                        suggestions.set(Vec::new());
                                                         return;
                                                     }
 
-                                                    cmd_input.set(String::new());
+                                                    let Some(db) = cvar_db.clone() else {
+                                                        suggestions.set(Vec::new());
+                                                        return;
+                                                    };
 
-                                                    let client =
-                                                        enter_client.clone();
-
-                                                    let mut logs = logs;
+                                                    let mut suggestions_signal = suggestions;
 
                                                     spawn(async move {
-                                                        let mut client =
-                                                            client.lock().await;
+                                                        let db = db.lock().await;
 
-                                                        match client.command(&cmd).await {
-                                                            Ok(response) => {
-                                                                logs.write().push(
-                                                                    RconLogEvent::RconResponse(
-                                                                        response,
-                                                                    ),
-                                                                );
-                                                            }
+                                                        let mut filter = HashSet::new();
 
-                                                            Err(error) => {
-                                                                logs.write().push(
-                                                                    RconLogEvent::Info(
-                                                                        format!(
-                                                                            "[RCON] Command failed: {}",
-                                                                            error
-                                                                        ),
-                                                                    ),
-                                                                );
-                                                            }
-                                                        }
+                                                        filter.insert(CvarFlag::MenuBarItem);
+                                                        filter.insert(CvarFlag::VConsoleFuzzy);
+                                                        filter.insert(CvarFlag::VConsoleSetFocus);
+                                                        filter.insert(CvarFlag::DevelopmentOnly);
+
+                                                        let results =
+                                                            db.get_suggestions(&query, &filter);
+
+                                                        suggestions_signal.set(results);
                                                     });
+                                                }
+                                            },
+
+                                            onkeydown: {
+                                                let enter_client = enter_client.clone();
+
+                                                move |event| {
+                                                    if event.key() == Key::Escape {
+                                                        suggestions.set(Vec::new());
+                                                        return;
+                                                    }
+
+                                                    if event.key() == Key::Enter {
+                                                        let cmd = cmd_input();
+
+                                                        if cmd.trim().is_empty() {
+                                                            return;
+                                                        }
+
+                                                        cmd_input.set(String::new());
+                                                        suggestions.set(Vec::new());
+
+                                                        let client =
+                                                            enter_client.clone();
+
+                                                        let mut logs = logs;
+
+                                                        spawn(async move {
+                                                            let mut client =
+                                                                client.lock().await;
+
+                                                            match client.command(&cmd).await {
+                                                                Ok(response) => {
+                                                                    logs.write().push(
+                                                                        RconLogEvent::RconResponse(
+                                                                            response,
+                                                                        ),
+                                                                    );
+                                                                }
+
+                                                                Err(error) => {
+                                                                    logs.write().push(
+                                                                        RconLogEvent::Info(
+                                                                            format!(
+                                                                                "[RCON] Command failed: {}",
+                                                                                error
+                                                                            ),
+                                                                        ),
+                                                                    );
+                                                                }
+                                                            }
+                                                        });
+                                                    }
                                                 }
                                             }
                                         }
@@ -751,6 +896,7 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
                                                 }
 
                                                 cmd_input.set(String::new());
+                                                suggestions.set(Vec::new());
 
                                                 let client =
                                                     send_client.clone();
@@ -758,8 +904,7 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
                                                 let mut logs = logs;
 
                                                 spawn(async move {
-                                                    let mut client =
-                                                        client.lock().await;
+                                                    let mut client = client.lock().await;
 
                                                     match client.command(&cmd).await {
                                                         Ok(response) => {
