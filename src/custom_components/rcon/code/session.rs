@@ -50,7 +50,8 @@ pub struct RconSession {
     pub max_rounds: Signal<u8>,
     pub need_attention: Signal<bool>,
     live_log_task: Option<Task>,
-    pub cvar_db: Option<Arc<tokio::sync::Mutex<CvarDatabase>>>,
+    pub cvar_db: Signal<Option<CvarDatabase>>,
+    pub command_history: Signal<Vec<String>>,
 }
 
 impl RconSession {
@@ -85,7 +86,8 @@ impl RconSession {
             need_attention: Signal::new(false),
             log_url: None,
             live_log_task: None,
-            cvar_db: None,
+            cvar_db: Signal::new(None),
+            command_history: Signal::new(Vec::new()),
         }
     }
 
@@ -266,7 +268,7 @@ impl RconSession {
         mut team_name_t: Signal<String>,
         mut max_rounds: Signal<u8>,
         mut need_attention: Signal<bool>,
-        cvar_db: Arc<tokio::sync::Mutex<CvarDatabase>>,
+        mut cvar_db: Signal<Option<CvarDatabase>>,
     ) {
         while let Some(parsed) = receiver.recv().await {
             logs.write().push(RconLogEvent::LiveLog(parsed.clone()));
@@ -344,7 +346,9 @@ impl RconSession {
                     if name == "mp_maxrounds" {
                         max_rounds.set(value.parse().unwrap_or(0));
                     }
-                    cvar_db.lock().await.update(name, value);
+                    if let Some(db) = cvar_db.write().as_mut() {
+                        db.update(&name, &value);
+                    }
                 }
 
                 // -----------------------------------------------------------------
@@ -429,7 +433,7 @@ impl RconSession {
             .await
             .expect("Failed to get cvarlist via rcon");
         let db = CvarDatabase::new(&cvarlist);
-        session.cvar_db = Some(Arc::new(tokio::sync::Mutex::new(db)));
+        session.cvar_db = Signal::new(Some(db));
 
         let receiver = session.live_log.take_receiver();
         let logs = session.logs;
@@ -441,7 +445,7 @@ impl RconSession {
         let max_rounds = session.max_rounds;
         let need_attention = session.need_attention;
         let client = session.client.clone();
-        let cvar_db = session.cvar_db.clone().expect("CVar database missing");
+        let cvar_db = session.cvar_db;
 
         let live_log_task = spawn(async move {
             Self::process_live_log(

@@ -266,24 +266,6 @@ impl CvarDatabase {
         matches.into_iter().map(|(_, cvar)| cvar).collect()
     }
 
-    // Helper to turn [Server, Replicated] into "SV, REP"
-    fn format_flags(&self, flags: &[CvarFlag]) -> String {
-        flags
-            .iter()
-            .filter_map(|f| match f {
-                CvarFlag::Server => Some("SV"),
-                CvarFlag::Replicated => Some("REP"),
-                CvarFlag::Cheat => Some("CHEAT"),
-                CvarFlag::Notify => Some("NF"),
-                CvarFlag::Linked => Some("LINK"),
-                CvarFlag::Archive => Some("A"),
-                CvarFlag::Protected => Some("PROT"),
-                _ => None, // Hide junk flags from the UI column
-            })
-            .collect::<Vec<_>>()
-            .join(", ")
-    }
-
     pub fn is_rcon_valid(&self, cvar: &Cvar) -> bool {
         let f = &cvar.flags;
 

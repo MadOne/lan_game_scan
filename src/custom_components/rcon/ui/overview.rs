@@ -716,13 +716,13 @@ fn RconTeamColumn(team: Team, players: Vec<String>, score: u8) -> Element {
 
 #[component]
 fn RconChatPanel(logs: Signal<Vec<RconLogEvent>>, on_command: EventHandler<String>) -> Element {
-    let mut chat_input = use_signal(String::new);
+    let chat_input = use_signal(String::new);
 
     // ------------------------------------------------------------
     // Mobile chat state
     // ------------------------------------------------------------
 
-    let mut show_mobile_chat = use_signal(|| false);
+    let show_mobile_chat = use_signal(|| false);
 
     // Number of log entries that were already seen while the chat
     // was open. We use the log length so this does not depend on
@@ -740,10 +740,34 @@ fn RconChatPanel(logs: Signal<Vec<RconLogEvent>>, on_command: EventHandler<Strin
     }
 
     rsx! {
-        // ========================================================
-        // DESKTOP CHAT
-        // ========================================================
+        RconDesktopChat {
+            logs,
+            chat_input,
+            on_command,
+        }
 
+        RconMobileChat {
+            logs,
+            chat_input,
+            show_mobile_chat,
+            seen_log_count,
+            has_unread_chat,
+            on_command,
+        }
+    }
+}
+
+// =============================================================================
+// DESKTOP CHAT
+// =============================================================================
+
+#[component]
+fn RconDesktopChat(
+    logs: Signal<Vec<RconLogEvent>>,
+    chat_input: Signal<String>,
+    on_command: EventHandler<String>,
+) -> Element {
+    rsx! {
         div {
             class: "hidden md:flex w-[360px] shrink-0 flex-col min-h-0 border-l border-zinc-800",
 
@@ -768,7 +792,23 @@ fn RconChatPanel(logs: Signal<Vec<RconLogEvent>>, on_command: EventHandler<Strin
                 on_command,
             }
         }
+    }
+}
 
+// =============================================================================
+// MOBILE CHAT
+// =============================================================================
+
+#[component]
+fn RconMobileChat(
+    logs: Signal<Vec<RconLogEvent>>,
+    chat_input: Signal<String>,
+    show_mobile_chat: Signal<bool>,
+    seen_log_count: Signal<usize>,
+    has_unread_chat: bool,
+    on_command: EventHandler<String>,
+) -> Element {
+    rsx! {
         // ====================================================
         // MOBILE CHAT BUTTON
         // ====================================================
@@ -942,11 +982,7 @@ fn RconChatInput(
     on_command: EventHandler<String>,
     #[props(default = false)] mobile: bool,
 ) -> Element {
-    let container_class = if mobile {
-        "shrink-0 border-t border-zinc-800 bg-zinc-900 p-2"
-    } else {
-        "shrink-0 border-t border-zinc-800 bg-zinc-900 p-2"
-    };
+    let container_class = "shrink-0 border-t border-zinc-800 bg-zinc-900 p-2";
 
     let input_class = if mobile {
         "
