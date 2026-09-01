@@ -8,6 +8,10 @@ use crate::custom_components::{
 
 use cbz_rcon::RconStatus;
 
+// =============================================================================
+// RCON OVERVIEW
+// =============================================================================
+
 #[component]
 pub fn RconOverview(
     addr: SocketAddr,
@@ -27,45 +31,177 @@ pub fn RconOverview(
     // Keep the RconPlayers value alive while we borrow player data from it.
     let current_players = players();
 
-    let ct_players: Vec<_> = current_players
+    let ct_players: Vec<String> = current_players
         .players()
         .values()
         .filter(|player| player.team == Team::CT)
+        .map(|player| {
+            if player.name.is_empty() {
+                "UNKNOWN".to_string()
+            } else {
+                player.name.clone()
+            }
+        })
         .collect();
 
-    let t_players: Vec<_> = current_players
+    let t_players: Vec<String> = current_players
         .players()
         .values()
         .filter(|player| player.team == Team::Terrorist)
+        .map(|player| {
+            if player.name.is_empty() {
+                "UNKNOWN".to_string()
+            } else {
+                player.name.clone()
+            }
+        })
         .collect();
 
     let current_score = score();
-    let is_paused = paused();
 
+    rsx! {
+        div {
+            class: "flex flex-col h-full min-h-0 bg-zinc-950",
+
+            // ========================================================
+            // SERVER CONTROL BAR
+            // ========================================================
+
+            RconControlBar {
+                hostname,
+                map,
+                score: current_score,
+                paused,
+                maps,
+                on_command,
+                get_maps,
+            }
+
+            // ========================================================
+            // MAIN OVERVIEW
+            // ========================================================
+
+            div {
+                class: "flex-1 min-h-0 flex relative",
+
+                // ====================================================
+                // TEAMS
+                // ====================================================
+
+                RconTeams {
+                    ct_players,
+                    t_players,
+                    score: current_score,
+                }
+
+                // ====================================================
+                // CHAT
+                // ====================================================
+
+                RconChatPanel {
+                    logs,
+                    on_command,
+                }
+            }
+        }
+    }
+}
+
+// =============================================================================
+// CONTROL BAR
+// =============================================================================
+
+#[component]
+fn RconControlBar(
+    hostname: String,
+    map: String,
+    score: TeamScore,
+    paused: Signal<bool>,
+    maps: Signal<Vec<String>>,
+    on_command: EventHandler<String>,
+    get_maps: EventHandler<()>,
+) -> Element {
+    rsx! {
+        div {
+            class: "shrink-0 bg-zinc-900 border-b border-zinc-800 px-5 py-3",
+
+            div {
+                class: "text-white font-black text-sm truncate",
+                "{hostname}"
+            }
+
+            div {
+                class: "flex items-center gap-4 mt-2 flex-wrap",
+
+                // ------------------------------------------------
+                // MAP
+                // ------------------------------------------------
+
+                RconMapSelector {
+                    map,
+                    maps,
+                    on_command,
+                    get_maps,
+                }
+
+                div {
+                    class: "text-zinc-700",
+                    "—"
+                }
+
+                // ------------------------------------------------
+                // ROUND
+                // ------------------------------------------------
+
+                RconRoundControls {
+                    round: score.round,
+                    on_command,
+                }
+
+                div {
+                    class: "text-zinc-700",
+                    "—"
+                }
+
+                // ------------------------------------------------
+                // STATUS / PAUSE
+                // ------------------------------------------------
+
+                RconPauseControls {
+                    paused,
+                    on_command,
+                }
+
+                div {
+                    class: "text-zinc-700",
+                    "—"
+                }
+
+                // ------------------------------------------------
+                // CONFIG
+                // ------------------------------------------------
+
+                RconConfig {
+                    on_command,
+                }
+            }
+        }
+    }
+}
+
+// =============================================================================
+// MAP SELECTOR
+// =============================================================================
+
+#[component]
+fn RconMapSelector(
+    map: String,
+    maps: Signal<Vec<String>>,
+    on_command: EventHandler<String>,
+    get_maps: EventHandler<()>,
+) -> Element {
     let mut show_map_change = use_signal(|| false);
     let mut map_input = use_signal(String::new);
-    let mut chat_input = use_signal(String::new);
-
-    // ------------------------------------------------------------
-    // Mobile chat state
-    // ------------------------------------------------------------
-
-    let mut show_mobile_chat = use_signal(|| false);
-
-    // Number of log entries that were already seen while the chat
-    // was open. We use the log length so this does not depend on
-    // the internal structure of RconLogEvent.
-    let mut seen_log_count = use_signal(|| logs().len());
-
-    let current_log_count = logs().len();
-
-    let has_unread_chat = !show_mobile_chat() && current_log_count > seen_log_count();
-
-    // Once the mobile chat is opened, everything currently in the
-    // log becomes read.
-    if show_mobile_chat() && current_log_count > seen_log_count() {
-        seen_log_count.set(current_log_count);
-    }
 
     let current_maps = maps();
 
@@ -93,842 +229,287 @@ pub fn RconOverview(
 
     rsx! {
         div {
-            class: "flex flex-col h-full min-h-0 bg-zinc-950",
+            class: "flex items-center gap-2 relative",
 
-            // ========================================================
-            // SERVER CONTROL BAR
-            // ========================================================
+            span {
+                class: "text-zinc-400 text-[10px] font-bold",
+                "{map}"
+            }
 
-            div {
-                class: "shrink-0 bg-zinc-900 border-b border-zinc-800 px-5 py-3",
+            button {
+                class: "px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-[9px] font-black text-zinc-300 hover:border-indigo-500 hover:text-indigo-300",
 
-                div {
-                    class: "text-white font-black text-sm truncate",
-                    "{hostname}"
-                }
+                onclick: move |_| {
+                    let was_open = show_map_change();
 
-                div {
-                    class: "flex items-center gap-4 mt-2 flex-wrap",
+                    if !was_open {
+                        show_map_change.set(true);
 
-                    // ------------------------------------------------
-                    // MAP
-                    // ------------------------------------------------
-
-                    div {
-                        class: "flex items-center gap-2 relative",
-
-                        span {
-                            class: "text-zinc-400 text-[10px] font-bold",
-                            "{map}"
+                        if current_maps.is_empty() {
+                            get_maps.call(());
                         }
+                    } else {
+                        show_map_change.set(false);
+                    }
+                },
 
-                        button {
-                            class: "px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-[9px] font-black text-zinc-300 hover:border-indigo-500 hover:text-indigo-300",
+                "CHANGE"
+            }
 
-                            onclick: move |_| {
-                                let was_open = show_map_change();
+            // ------------------------------------------------
+            // MAP SELECTOR POPUP
+            // ------------------------------------------------
 
-                                if !was_open {
-                                    show_map_change.set(true);
+            if show_map_change() {
+                div {
+                    class: "absolute top-8 left-0 z-50 bg-zinc-900 border border-zinc-700 rounded-lg p-3 shadow-xl w-[720px] max-w-[calc(100vw-2rem)]",
 
-                                    if current_maps.is_empty() {
-                                        get_maps.call(());
-                                    }
-                                } else {
-                                    show_map_change.set(false);
-                                }
-                            },
-
-                            "CHANGE"
+                    if current_maps.is_empty() {
+                        div {
+                            class: "text-zinc-600 text-[10px] px-2 py-2 animate-pulse text-center",
+                            "LOADING MAPS..."
                         }
+                    } else {
+                        div {
+                            class: "grid grid-cols-4 gap-3",
 
-                        // ------------------------------------------------
-                        // MAP SELECTOR
-                        // ------------------------------------------------
-
-                        if show_map_change() {
                             div {
-                                class: "absolute top-8 left-0 z-50 bg-zinc-900 border border-zinc-700 rounded-lg p-3 shadow-xl w-[720px] max-w-[calc(100vw-2rem)]",
+                                class: "col-span-2 text-blue-400 text-[10px] font-black tracking-widest text-center pb-1",
+                                "DE"
+                            }
 
-                                if current_maps.is_empty() {
-                                    div {
-                                        class: "text-zinc-600 text-[10px] px-2 py-2 animate-pulse text-center",
-                                        "LOADING MAPS..."
-                                    }
-                                } else {
-                                    div {
-                                        class: "grid grid-cols-4 gap-3",
+                            div {
+                                class: "text-red-400 text-[10px] font-black tracking-widest text-center pb-1",
+                                "CS"
+                            }
 
-                                        div {
-                                            class: "col-span-2 text-blue-400 text-[10px] font-black tracking-widest text-center pb-1",
-                                            "DE"
-                                        }
+                            div {
+                                class: "text-amber-400 text-[10px] font-black tracking-widest text-center pb-1",
+                                "AR"
+                            }
 
-                                        div {
-                                            class: "text-red-400 text-[10px] font-black tracking-widest text-center pb-1",
-                                            "CS"
-                                        }
+                            // =================================================
+                            // DE MAPS
+                            // =================================================
 
-                                        div {
-                                            class: "text-amber-400 text-[10px] font-black tracking-widest text-center pb-1",
-                                            "AR"
-                                        }
+                            div {
+                                class: "col-span-2 grid grid-cols-2 gap-1 max-h-64 overflow-y-auto",
 
-                                        // =================================================
-                                        // DE MAPS
-                                        // =================================================
+                                for available_map in de_maps.iter() {
+                                    {
+                                        let map_name = available_map.clone();
 
-                                        div {
-                                            class: "col-span-2 grid grid-cols-2 gap-1 max-h-64 overflow-y-auto",
+                                        rsx! {
+                                            button {
+                                                key: "{map_name}",
 
-                                            for available_map in de_maps.iter() {
-                                                {
-                                                    let map_name = available_map.clone();
+                                                class: "
+                                                    w-full text-left
+                                                    px-2 py-1.5
+                                                    rounded
+                                                    text-[10px]
+                                                    font-bold
+                                                    text-blue-300/80
+                                                    hover:bg-blue-500/10
+                                                    hover:text-blue-200
+                                                    truncate
+                                                    transition-colors
+                                                ",
 
-                                                    rsx! {
-                                                        button {
-                                                            key: "{map_name}",
-
-                                                            class: "
-                                                                w-full text-left
-                                                                px-2 py-1.5
-                                                                rounded
-                                                                text-[10px]
-                                                                font-bold
-                                                                text-blue-300/80
-                                                                hover:bg-blue-500/10
-                                                                hover:text-blue-200
-                                                                truncate
-                                                                transition-colors
-                                                            ",
-
-                                                            onclick: move |_| {
-                                                                on_command.call(
-                                                                    format!("changelevel {}", map_name)
-                                                                );
-
-                                                                show_map_change.set(false);
-                                                            },
-
-                                                            "{available_map}"
-                                                        }
-                                                    }
-                                                }
-                                            }
-
-                                            if de_maps.is_empty() {
-                                                div {
-                                                    class: "col-span-2 text-center text-zinc-700 text-[10px] py-2",
-                                                    "NO MAPS"
-                                                }
-                                            }
-                                        }
-
-                                        // =================================================
-                                        // CS MAPS
-                                        // =================================================
-
-                                        div {
-                                            class: "max-h-64 overflow-y-auto space-y-1",
-
-                                            for available_map in cs_maps.iter() {
-                                                {
-                                                    let map_name = available_map.clone();
-
-                                                    rsx! {
-                                                        button {
-                                                            key: "{map_name}",
-
-                                                            class: "
-                                                                w-full text-left
-                                                                px-2 py-1.5
-                                                                rounded
-                                                                text-[10px]
-                                                                font-bold
-                                                                text-red-300/80
-                                                                hover:bg-red-500/10
-                                                                hover:text-red-200
-                                                                truncate
-                                                                transition-colors
-                                                            ",
-
-                                                            onclick: move |_| {
-                                                                on_command.call(
-                                                                    format!("changelevel {}", map_name)
-                                                                );
-
-                                                                show_map_change.set(false);
-                                                            },
-
-                                                            "{available_map}"
-                                                        }
-                                                    }
-                                                }
-                                            }
-
-                                            if cs_maps.is_empty() {
-                                                div {
-                                                    class: "text-center text-zinc-700 text-[10px] py-2",
-                                                    "NO MAPS"
-                                                }
-                                            }
-                                        }
-
-                                        // =================================================
-                                        // AR MAPS
-                                        // =================================================
-
-                                        div {
-                                            class: "max-h-64 overflow-y-auto space-y-1",
-
-                                            for available_map in ar_maps.iter() {
-                                                {
-                                                    let map_name = available_map.clone();
-
-                                                    rsx! {
-                                                        button {
-                                                            key: "{map_name}",
-
-                                                            class: "
-                                                                w-full text-left
-                                                                px-2 py-1.5
-                                                                rounded
-                                                                text-[10px]
-                                                                font-bold
-                                                                text-amber-300/80
-                                                                hover:bg-amber-500/10
-                                                                hover:text-amber-200
-                                                                truncate
-                                                                transition-colors
-                                                            ",
-
-                                                            onclick: move |_| {
-                                                                on_command.call(
-                                                                    format!("changelevel {}", map_name)
-                                                                );
-
-                                                                show_map_change.set(false);
-                                                            },
-
-                                                            "{available_map}"
-                                                        }
-                                                    }
-                                                }
-                                            }
-
-                                            if ar_maps.is_empty() {
-                                                div {
-                                                    class: "text-center text-zinc-700 text-[10px] py-2",
-                                                    "NO MAPS"
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // ----------------------------------------
-                                // CUSTOM MAP
-                                // ----------------------------------------
-
-                                div {
-                                    class: "border-t border-zinc-800 mt-3 pt-2 flex items-center gap-2",
-
-                                    input {
-                                        r#type: "text",
-                                        placeholder: "Custom map...",
-                                        value: "{map_input}",
-
-                                        class: "flex-1 min-w-0 bg-zinc-950 border border-zinc-700 rounded px-2 py-1.5 text-[10px] text-white outline-none focus:border-indigo-500",
-
-                                        oninput: move |event| {
-                                            map_input.set(event.value());
-                                        },
-
-                                        onkeydown: move |event| {
-                                            if event.key() == Key::Enter {
-                                                let map_name = map_input().trim().to_string();
-
-                                                if !map_name.is_empty() {
+                                                onclick: move |_| {
                                                     on_command.call(
                                                         format!("changelevel {}", map_name)
                                                     );
 
-                                                    map_input.set(String::new());
                                                     show_map_change.set(false);
-                                                }
+                                                },
+
+                                                "{available_map}"
                                             }
                                         }
                                     }
+                                }
 
-                                    button {
-                                        class: "px-2 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-[9px] font-black",
+                                if de_maps.is_empty() {
+                                    div {
+                                        class: "col-span-2 text-center text-zinc-700 text-[10px] py-2",
+                                        "NO MAPS"
+                                    }
+                                }
+                            }
 
-                                        onclick: move |_| {
-                                            let map_name = map_input().trim().to_string();
+                            // =================================================
+                            // CS MAPS
+                            // =================================================
 
-                                            if !map_name.is_empty() {
-                                                on_command.call(
-                                                    format!("changelevel {}", map_name)
-                                                );
+                            div {
+                                class: "max-h-64 overflow-y-auto space-y-1",
 
-                                                map_input.set(String::new());
-                                                show_map_change.set(false);
+                                for available_map in cs_maps.iter() {
+                                    {
+                                        let map_name = available_map.clone();
+
+                                        rsx! {
+                                            button {
+                                                key: "{map_name}",
+
+                                                class: "
+                                                    w-full text-left
+                                                    px-2 py-1.5
+                                                    rounded
+                                                    text-[10px]
+                                                    font-bold
+                                                    text-red-300/80
+                                                    hover:bg-red-500/10
+                                                    hover:text-red-200
+                                                    truncate
+                                                    transition-colors
+                                                ",
+
+                                                onclick: move |_| {
+                                                    on_command.call(
+                                                        format!("changelevel {}", map_name)
+                                                    );
+
+                                                    show_map_change.set(false);
+                                                },
+
+                                                "{available_map}"
                                             }
-                                        },
-
-                                        "GO"
+                                        }
                                     }
                                 }
 
-                                // ----------------------------------------
-                                // CLOSE
-                                // ----------------------------------------
+                                if cs_maps.is_empty() {
+                                    div {
+                                        class: "text-center text-zinc-700 text-[10px] py-2",
+                                        "NO MAPS"
+                                    }
+                                }
+                            }
 
-                                div {
-                                    class: "flex justify-end mt-1",
+                            // =================================================
+                            // AR MAPS
+                            // =================================================
 
-                                    button {
-                                        class: "px-1.5 py-1 text-zinc-500 hover:text-zinc-300 text-[10px]",
+                            div {
+                                class: "max-h-64 overflow-y-auto space-y-1",
 
-                                        onclick: move |_| {
-                                            show_map_change.set(false);
-                                            map_input.set(String::new());
-                                        },
+                                for available_map in ar_maps.iter() {
+                                    {
+                                        let map_name = available_map.clone();
 
-                                        "×"
+                                        rsx! {
+                                            button {
+                                                key: "{map_name}",
+
+                                                class: "
+                                                    w-full text-left
+                                                    px-2 py-1.5
+                                                    rounded
+                                                    text-[10px]
+                                                    font-bold
+                                                    text-amber-300/80
+                                                    hover:bg-amber-500/10
+                                                    hover:text-amber-200
+                                                    truncate
+                                                    transition-colors
+                                                ",
+
+                                                onclick: move |_| {
+                                                    on_command.call(
+                                                        format!("changelevel {}", map_name)
+                                                    );
+
+                                                    show_map_change.set(false);
+                                                },
+
+                                                "{available_map}"
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if ar_maps.is_empty() {
+                                    div {
+                                        class: "text-center text-zinc-700 text-[10px] py-2",
+                                        "NO MAPS"
                                     }
                                 }
                             }
                         }
                     }
 
-                    div {
-                        class: "text-zinc-700",
-                        "—"
-                    }
-
-                    // ------------------------------------------------
-                    // ROUND
-                    // ------------------------------------------------
+                    // ----------------------------------------
+                    // CUSTOM MAP
+                    // ----------------------------------------
 
                     div {
-                        class: "flex items-center gap-2",
+                        class: "border-t border-zinc-800 mt-3 pt-2 flex items-center gap-2",
 
-                        span {
-                            class: "text-zinc-400 text-[10px] font-black uppercase tracking-wider",
-                            "ROUND {current_score.round}"
+                        input {
+                            r#type: "text",
+                            placeholder: "Custom map...",
+                            value: "{map_input}",
+
+                            class: "flex-1 min-w-0 bg-zinc-950 border border-zinc-700 rounded px-2 py-1.5 text-[10px] text-white outline-none focus:border-indigo-500",
+
+                            oninput: move |event| {
+                                map_input.set(event.value());
+                            },
+
+                            onkeydown: move |event| {
+                                if event.key() == Key::Enter {
+                                    let map_name = map_input().trim().to_string();
+
+                                    if !map_name.is_empty() {
+                                        on_command.call(
+                                            format!("changelevel {}", map_name)
+                                        );
+
+                                        map_input.set(String::new());
+                                        show_map_change.set(false);
+                                    }
+                                }
+                            }
                         }
 
                         button {
-                            class: "px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-[9px] font-black text-zinc-300 hover:border-indigo-500 hover:text-indigo-300",
+                            class: "px-2 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-[9px] font-black",
 
                             onclick: move |_| {
-                                on_command.call("mp_restartgame 1".to_string());
+                                let map_name = map_input().trim().to_string();
+
+                                if !map_name.is_empty() {
+                                    on_command.call(
+                                        format!("changelevel {}", map_name)
+                                    );
+
+                                    map_input.set(String::new());
+                                    show_map_change.set(false);
+                                }
                             },
 
-                            "RESTART"
+                            "GO"
                         }
                     }
+
+                    // ----------------------------------------
+                    // CLOSE
+                    // ----------------------------------------
 
                     div {
-                        class: "text-zinc-700",
-                        "—"
-                    }
+                        class: "flex justify-end mt-1",
 
-                    // ------------------------------------------------
-                    // STATUS / PAUSE
-                    // ------------------------------------------------
+                        button {
+                            class: "px-1.5 py-1 text-zinc-500 hover:text-zinc-300 text-[10px]",
 
-                    div {
-                        class: "flex items-center gap-2",
+                            onclick: move |_| {
+                                show_map_change.set(false);
+                                map_input.set(String::new());
+                            },
 
-                        div {
-                            class: "flex items-center gap-2",
-
-                            if is_paused {
-                                span {
-                                    class: "text-yellow-500 font-black text-[10px]",
-                                    "● PAUSED"
-                                }
-                            } else {
-                                span {
-                                    class: "text-emerald-500 font-black text-[10px]",
-                                    "● RUNNING"
-                                }
-                            }
-                        }
-
-                        {
-                            let button_class = if is_paused {
-                                "px-2 py-1 bg-emerald-900/40 border border-emerald-700 rounded text-[9px] font-black text-emerald-300 hover:border-emerald-500 hover:text-emerald-200"
-                            } else {
-                                "px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-[9px] font-black text-zinc-300 hover:border-red-500 hover:text-red-400"
-                            };
-
-                            let command = if is_paused {
-                                "mp_unpause_match"
-                            } else {
-                                "mp_pause_match"
-                            };
-
-                            rsx! {
-                                button {
-                                    class: button_class,
-
-                                    onclick: move |_| {
-                                        on_command.call(command.to_string());
-                                    },
-
-                                    if is_paused {
-                                        "UNPAUSE"
-                                    } else {
-                                        "PAUSE"
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    div {
-                        class: "text-zinc-700",
-                        "—"
-                    }
-
-                    // ------------------------------------------------
-                    // CONFIG
-                    // ------------------------------------------------
-
-                    RconConfig {
-                        on_command,
-                    }
-                }
-            }
-
-            // ========================================================
-            // MAIN OVERVIEW
-            // ========================================================
-
-            div {
-                class: "flex-1 min-h-0 flex relative",
-
-                // ====================================================
-                // TEAMS
-                // ====================================================
-
-                div {
-                    class: "flex-1 min-w-0 p-6 overflow-y-auto",
-
-                    div {
-                        class: "grid grid-cols-2 gap-8",
-
-                        // ==================================================
-                        // CT
-                        // ==================================================
-
-                        div {
-                            class: "flex flex-col min-w-0",
-
-                            div {
-                                class: "text-center mb-5",
-
-                                div {
-                                    class: "text-blue-400 font-black text-[11px] tracking-widest uppercase",
-                                    "COUNTER-TERRORISTS"
-                                }
-
-                                div {
-                                    class: "text-blue-400 text-5xl font-black mt-2",
-                                    "{current_score.ct}"
-                                }
-
-                                div {
-                                    class: "text-[9px] text-zinc-600 mt-1",
-                                    "{ct_players.len()} PLAYERS"
-                                }
-                            }
-
-                            div {
-                                class: "space-y-2",
-
-                                for player in ct_players.iter() {
-                                    div {
-                                        class: "px-4 py-2 bg-zinc-900/60 border border-zinc-800 rounded text-blue-300 font-bold",
-
-                                        if player.name.is_empty() {
-                                            "UNKNOWN"
-                                        } else {
-                                            "{player.name}"
-                                        }
-                                    }
-                                }
-
-                                if ct_players.is_empty() {
-                                    div {
-                                        class: "text-center text-zinc-700 text-[10px] py-4",
-                                        "NO PLAYER DATA"
-                                    }
-                                }
-                            }
-                        }
-
-                        // ==================================================
-                        // T
-                        // ==================================================
-
-                        div {
-                            class: "flex flex-col min-w-0",
-
-                            div {
-                                class: "text-center mb-5",
-
-                                div {
-                                    class: "text-red-400 font-black text-[11px] tracking-widest uppercase",
-                                    "TERRORISTS"
-                                }
-
-                                div {
-                                    class: "text-red-400 text-5xl font-black mt-2",
-                                    "{current_score.t}"
-                                }
-
-                                div {
-                                    class: "text-[9px] text-zinc-600 mt-1",
-                                    "{t_players.len()} PLAYERS"
-                                }
-                            }
-
-                            div {
-                                class: "space-y-2",
-
-                                for player in t_players.iter() {
-                                    div {
-                                        class: "px-4 py-2 bg-zinc-900/60 border border-zinc-800 rounded text-red-300 font-bold",
-
-                                        if player.name.is_empty() {
-                                            "UNKNOWN"
-                                        } else {
-                                            "{player.name}"
-                                        }
-                                    }
-                                }
-
-                                if t_players.is_empty() {
-                                    div {
-                                        class: "text-center text-zinc-700 text-[10px] py-4",
-                                        "NO PLAYER DATA"
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // ====================================================
-                // DESKTOP CHAT
-                // ====================================================
-
-                div {
-                    class: "hidden md:flex w-[360px] shrink-0 flex-col min-h-0 border-l border-zinc-800",
-
-                    // ------------------------------------------------
-                    // CHAT LOG
-                    // ------------------------------------------------
-
-                    div {
-                        class: "flex-1 min-h-0",
-
-                        RconChat {
-                            logs: logs
-                        }
-                    }
-
-                    // ------------------------------------------------
-                    // CHAT INPUT
-                    // ------------------------------------------------
-
-                    div {
-                        class: "shrink-0 border-t border-zinc-800 bg-zinc-900 p-2",
-
-                        div {
-                            class: "flex items-center gap-2",
-
-                            input {
-                                r#type: "text",
-                                placeholder: "Send message...",
-                                value: "{chat_input}",
-
-                                class: "
-                                    flex-1 min-w-0
-                                    bg-zinc-950
-                                    border border-zinc-700
-                                    rounded
-                                    px-2 py-1.5
-                                    text-[10px] text-white
-                                    placeholder-zinc-600
-                                    outline-none
-                                    focus:border-indigo-500
-                                ",
-
-                                oninput: move |event| {
-                                    chat_input.set(event.value());
-                                },
-
-                                onkeydown: move |event| {
-                                    if event.key() == Key::Enter {
-                                        let message = chat_input().trim().to_string();
-
-                                        if !message.is_empty() {
-                                            on_command.call(format!("say {}", message));
-                                            chat_input.set(String::new());
-                                        }
-                                    }
-                                }
-                            }
-
-                            button {
-                                class: "
-                                    shrink-0
-                                    px-3 py-1.5
-                                    bg-indigo-600
-                                    hover:bg-indigo-500
-                                    text-white
-                                    rounded
-                                    text-[9px]
-                                    font-black
-                                ",
-
-                                onclick: move |_| {
-                                    let message = chat_input().trim().to_string();
-
-                                    if !message.is_empty() {
-                                        on_command.call(format!("say {}", message));
-                                        chat_input.set(String::new());
-                                    }
-                                },
-
-                                "SEND"
-                            }
-                        }
-                    }
-                }
-
-                // ====================================================
-                // MOBILE CHAT BUTTON
-                // ====================================================
-
-                button {
-                    class: "
-                        md:hidden
-                        absolute
-                        right-4
-                        bottom-4
-                        z-30
-                        px-4
-                        py-2.5
-                        bg-zinc-900
-                        border
-                        border-zinc-700
-                        rounded-lg
-                        shadow-xl
-                        text-zinc-300
-                        text-[10px]
-                        font-black
-                        tracking-widest
-                        hover:border-indigo-500
-                        hover:text-indigo-300
-                        transition-all
-                    ",
-
-                    onclick: move |_| {
-                        seen_log_count.set(logs().len());
-                        show_mobile_chat.set(true);
-                    },
-
-                    "CHAT"
-
-                    if has_unread_chat {
-                        span {
-                            class: "
-                                absolute
-                                -top-1.5
-                                -right-1.5
-                                min-w-[10px]
-                                h-[10px]
-                                rounded-full
-                                bg-red-500
-                                border-2
-                                border-zinc-950
-                                shadow
-                            ",
-                        }
-
-                        span {
-                            class: "
-                                absolute
-                                -top-7
-                                right-0
-                                px-1.5
-                                py-0.5
-                                bg-red-600
-                                rounded
-                                text-[7px]
-                                text-white
-                                font-black
-                                tracking-wider
-                                shadow
-                            ",
-                            "NEW"
-                        }
-                    }
-                }
-
-                // ====================================================
-                // MOBILE CHAT SLIDE-IN
-                // ====================================================
-
-                if show_mobile_chat() {
-                    div {
-                        class: "
-                            md:hidden
-                            absolute
-                            inset-y-0
-                            right-0
-                            z-40
-                            w-[min(360px,100%)]
-                            flex
-                            flex-col
-                            min-h-0
-                            bg-zinc-950
-                            border-l
-                            border-zinc-700
-                            shadow-2xl
-                        ",
-
-                        // ------------------------------------------------
-                        // MOBILE CHAT HEADER
-                        // ------------------------------------------------
-
-                        div {
-                            class: "
-                                shrink-0
-                                h-12
-                                flex
-                                items-center
-                                justify-between
-                                px-4
-                                bg-zinc-900
-                                border-b
-                                border-zinc-800
-                            ",
-
-                            div {
-                                class: "text-indigo-400 text-[10px] font-black tracking-widest",
-                                "CHAT"
-                            }
-
-                            button {
-                                class: "
-                                    w-8
-                                    h-8
-                                    flex
-                                    items-center
-                                    justify-center
-                                    rounded
-                                    text-zinc-500
-                                    hover:text-white
-                                    hover:bg-zinc-800
-                                    text-lg
-                                ",
-
-                                onclick: move |_| {
-                                    show_mobile_chat.set(false);
-                                    seen_log_count.set(logs().len());
-                                },
-
-                                "×"
-                            }
-                        }
-
-                        // ------------------------------------------------
-                        // CHAT LOG
-                        // ------------------------------------------------
-
-                        div {
-                            class: "flex-1 min-h-0",
-
-                            RconChat {
-                                logs: logs
-                            }
-                        }
-
-                        // ------------------------------------------------
-                        // CHAT INPUT
-                        // ------------------------------------------------
-
-                        div {
-                            class: "shrink-0 border-t border-zinc-800 bg-zinc-900 p-2",
-
-                            div {
-                                class: "flex items-center gap-2",
-
-                                input {
-                                    r#type: "text",
-                                    placeholder: "Send message...",
-                                    value: "{chat_input}",
-
-                                    class: "
-                                        flex-1 min-w-0
-                                        bg-zinc-950
-                                        border border-zinc-700
-                                        rounded
-                                        px-2 py-2
-                                        text-[10px] text-white
-                                        placeholder-zinc-600
-                                        outline-none
-                                        focus:border-indigo-500
-                                    ",
-
-                                    oninput: move |event| {
-                                        chat_input.set(event.value());
-                                    },
-
-                                    onkeydown: move |event| {
-                                        if event.key() == Key::Enter {
-                                            let message = chat_input().trim().to_string();
-
-                                            if !message.is_empty() {
-                                                on_command.call(format!("say {}", message));
-                                                chat_input.set(String::new());
-                                            }
-                                        }
-                                    }
-                                }
-
-                                button {
-                                    class: "
-                                        shrink-0
-                                        px-3
-                                        py-2
-                                        bg-indigo-600
-                                        hover:bg-indigo-500
-                                        text-white
-                                        rounded
-                                        text-[9px]
-                                        font-black
-                                    ",
-
-                                    onclick: move |_| {
-                                        let message = chat_input().trim().to_string();
-
-                                        if !message.is_empty() {
-                                            on_command.call(format!("say {}", message));
-                                            chat_input.set(String::new());
-                                        }
-                                    },
-
-                                    "SEND"
-                                }
-                            }
+                            "×"
                         }
                     }
                 }
@@ -936,6 +517,540 @@ pub fn RconOverview(
         }
     }
 }
+
+// =============================================================================
+// ROUND CONTROLS
+// =============================================================================
+
+#[component]
+fn RconRoundControls(round: i32, on_command: EventHandler<String>) -> Element {
+    rsx! {
+        div {
+            class: "flex items-center gap-2",
+
+            span {
+                class: "text-zinc-400 text-[10px] font-black uppercase tracking-wider",
+                "ROUND {round}"
+            }
+
+            button {
+                class: "px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-[9px] font-black text-zinc-300 hover:border-indigo-500 hover:text-indigo-300",
+
+                onclick: move |_| {
+                    on_command.call("mp_restartgame 1".to_string());
+                },
+
+                "RESTART"
+            }
+        }
+    }
+}
+
+// =============================================================================
+// PAUSE CONTROLS
+// =============================================================================
+
+#[component]
+fn RconPauseControls(paused: Signal<bool>, on_command: EventHandler<String>) -> Element {
+    let is_paused = paused();
+
+    rsx! {
+        div {
+            class: "flex items-center gap-2",
+
+            div {
+                class: "flex items-center gap-2",
+
+                if is_paused {
+                    span {
+                        class: "text-yellow-500 font-black text-[10px]",
+                        "● PAUSED"
+                    }
+                } else {
+                    span {
+                        class: "text-emerald-500 font-black text-[10px]",
+                        "● RUNNING"
+                    }
+                }
+            }
+
+            {
+                let button_class = if is_paused {
+                    "px-2 py-1 bg-emerald-900/40 border border-emerald-700 rounded text-[9px] font-black text-emerald-300 hover:border-emerald-500 hover:text-emerald-200"
+                } else {
+                    "px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-[9px] font-black text-zinc-300 hover:border-red-500 hover:text-red-400"
+                };
+
+                let command = if is_paused {
+                    "mp_unpause_match"
+                } else {
+                    "mp_pause_match"
+                };
+
+                rsx! {
+                    button {
+                        class: button_class,
+
+                        onclick: move |_| {
+                            on_command.call(command.to_string());
+                        },
+
+                        if is_paused {
+                            "UNPAUSE"
+                        } else {
+                            "PAUSE"
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// =============================================================================
+// TEAMS
+// =============================================================================
+
+#[component]
+fn RconTeams(ct_players: Vec<String>, t_players: Vec<String>, score: TeamScore) -> Element {
+    rsx! {
+        div {
+            class: "flex-1 min-w-0 p-6 overflow-y-auto",
+
+            div {
+                class: "grid grid-cols-2 gap-8",
+
+                RconTeamColumn {
+                    team: Team::CT,
+                    players: ct_players,
+                    score: score.ct,
+                }
+
+                RconTeamColumn {
+                    team: Team::Terrorist,
+                    players: t_players,
+                    score: score.t,
+                }
+            }
+        }
+    }
+}
+
+// =============================================================================
+// TEAM COLUMN
+// =============================================================================
+
+#[component]
+fn RconTeamColumn(team: Team, players: Vec<String>, score: u8) -> Element {
+    let (team_name, team_color) = match team {
+        Team::CT => ("COUNTER-TERRORISTS", "blue"),
+        Team::Terrorist => ("TERRORISTS", "red"),
+        _ => ("UNKNOWN", "zinc"),
+    };
+
+    let title_class = match team_color {
+        "blue" => "text-blue-400 font-black text-[11px] tracking-widest uppercase",
+        "red" => "text-red-400 font-black text-[11px] tracking-widest uppercase",
+        _ => "text-zinc-400 font-black text-[11px] tracking-widest uppercase",
+    };
+
+    let score_class = match team_color {
+        "blue" => "text-blue-400 text-5xl font-black mt-2",
+        "red" => "text-red-400 text-5xl font-black mt-2",
+        _ => "text-zinc-400 text-5xl font-black mt-2",
+    };
+
+    let player_class = match team_color {
+        "blue" => "px-4 py-2 bg-zinc-900/60 border border-zinc-800 rounded text-blue-300 font-bold",
+        "red" => "px-4 py-2 bg-zinc-900/60 border border-zinc-800 rounded text-red-300 font-bold",
+        _ => "px-4 py-2 bg-zinc-900/60 border border-zinc-800 rounded text-zinc-300 font-bold",
+    };
+
+    rsx! {
+        div {
+            class: "flex flex-col min-w-0",
+
+            div {
+                class: "text-center mb-5",
+
+                div {
+                    class: title_class,
+                    "{team_name}"
+                }
+
+                div {
+                    class: score_class,
+                    "{score}"
+                }
+
+                div {
+                    class: "text-[9px] text-zinc-600 mt-1",
+                    "{players.len()} PLAYERS"
+                }
+            }
+
+            div {
+                class: "space-y-2",
+
+                for player in players.iter() {
+                    div {
+                        class: player_class,
+                        "{player}"
+                    }
+                }
+
+                if players.is_empty() {
+                    div {
+                        class: "text-center text-zinc-700 text-[10px] py-4",
+                        "NO PLAYER DATA"
+                    }
+                }
+            }
+        }
+    }
+}
+
+// =============================================================================
+// CHAT PANEL
+// =============================================================================
+
+#[component]
+fn RconChatPanel(logs: Signal<Vec<RconLogEvent>>, on_command: EventHandler<String>) -> Element {
+    let mut chat_input = use_signal(String::new);
+
+    // ------------------------------------------------------------
+    // Mobile chat state
+    // ------------------------------------------------------------
+
+    let mut show_mobile_chat = use_signal(|| false);
+
+    // Number of log entries that were already seen while the chat
+    // was open. We use the log length so this does not depend on
+    // the internal structure of RconLogEvent.
+    let mut seen_log_count = use_signal(|| logs().len());
+
+    let current_log_count = logs().len();
+
+    let has_unread_chat = !show_mobile_chat() && current_log_count > seen_log_count();
+
+    // Once the mobile chat is opened, everything currently in the
+    // log becomes read.
+    if show_mobile_chat() && current_log_count > seen_log_count() {
+        seen_log_count.set(current_log_count);
+    }
+
+    rsx! {
+        // ========================================================
+        // DESKTOP CHAT
+        // ========================================================
+
+        div {
+            class: "hidden md:flex w-[360px] shrink-0 flex-col min-h-0 border-l border-zinc-800",
+
+            // ------------------------------------------------
+            // CHAT LOG
+            // ------------------------------------------------
+
+            div {
+                class: "flex-1 min-h-0",
+
+                RconChat {
+                    logs: logs
+                }
+            }
+
+            // ------------------------------------------------
+            // CHAT INPUT
+            // ------------------------------------------------
+
+            RconChatInput {
+                chat_input,
+                on_command,
+            }
+        }
+
+        // ====================================================
+        // MOBILE CHAT BUTTON
+        // ====================================================
+
+        button {
+            class: "
+                md:hidden
+                absolute
+                right-4
+                bottom-4
+                z-30
+                px-4
+                py-2.5
+                bg-zinc-900
+                border
+                border-zinc-700
+                rounded-lg
+                shadow-xl
+                text-zinc-300
+                text-[10px]
+                font-black
+                tracking-widest
+                hover:border-indigo-500
+                hover:text-indigo-300
+                transition-all
+            ",
+
+            onclick: move |_| {
+                seen_log_count.set(logs().len());
+                show_mobile_chat.set(true);
+            },
+
+            "CHAT"
+
+            if has_unread_chat {
+                span {
+                    class: "
+                        absolute
+                        -top-1.5
+                        -right-1.5
+                        min-w-[10px]
+                        h-[10px]
+                        rounded-full
+                        bg-red-500
+                        border-2
+                        border-zinc-950
+                        shadow
+                    ",
+                }
+
+                span {
+                    class: "
+                        absolute
+                        -top-7
+                        right-0
+                        px-1.5
+                        py-0.5
+                        bg-red-600
+                        rounded
+                        text-[7px]
+                        text-white
+                        font-black
+                        tracking-wider
+                        shadow
+                    ",
+                    "NEW"
+                }
+            }
+        }
+
+        // ====================================================
+        // MOBILE CHAT SLIDE-IN
+        // ====================================================
+
+        if show_mobile_chat() {
+            div {
+                class: "
+                    md:hidden
+                    absolute
+                    inset-y-0
+                    right-0
+                    z-40
+                    w-[min(360px,100%)]
+                    flex
+                    flex-col
+                    min-h-0
+                    bg-zinc-950
+                    border-l
+                    border-zinc-700
+                    shadow-2xl
+                ",
+
+                // ------------------------------------------------
+                // MOBILE CHAT HEADER
+                // ------------------------------------------------
+
+                div {
+                    class: "
+                        shrink-0
+                        h-12
+                        flex
+                        items-center
+                        justify-between
+                        px-4
+                        bg-zinc-900
+                        border-b
+                        border-zinc-800
+                    ",
+
+                    div {
+                        class: "text-indigo-400 text-[10px] font-black tracking-widest",
+                        "CHAT"
+                    }
+
+                    button {
+                        class: "
+                            w-8
+                            h-8
+                            flex
+                            items-center
+                            justify-center
+                            rounded
+                            text-zinc-500
+                            hover:text-white
+                            hover:bg-zinc-800
+                            text-lg
+                        ",
+
+                        onclick: move |_| {
+                            show_mobile_chat.set(false);
+                            seen_log_count.set(logs().len());
+                        },
+
+                        "×"
+                    }
+                }
+
+                // ------------------------------------------------
+                // CHAT LOG
+                // ------------------------------------------------
+
+                div {
+                    class: "flex-1 min-h-0",
+
+                    RconChat {
+                        logs: logs
+                    }
+                }
+
+                // ------------------------------------------------
+                // CHAT INPUT
+                // ------------------------------------------------
+
+                RconChatInput {
+                    chat_input,
+                    on_command,
+                    mobile: true,
+                }
+            }
+        }
+    }
+}
+
+// =============================================================================
+// CHAT INPUT
+// =============================================================================
+
+#[component]
+fn RconChatInput(
+    chat_input: Signal<String>,
+    on_command: EventHandler<String>,
+    #[props(default = false)] mobile: bool,
+) -> Element {
+    let container_class = if mobile {
+        "shrink-0 border-t border-zinc-800 bg-zinc-900 p-2"
+    } else {
+        "shrink-0 border-t border-zinc-800 bg-zinc-900 p-2"
+    };
+
+    let input_class = if mobile {
+        "
+            flex-1 min-w-0
+            bg-zinc-950
+            border border-zinc-700
+            rounded
+            px-2 py-2
+            text-[10px] text-white
+            placeholder-zinc-600
+            outline-none
+            focus:border-indigo-500
+        "
+    } else {
+        "
+            flex-1 min-w-0
+            bg-zinc-950
+            border border-zinc-700
+            rounded
+            px-2 py-1.5
+            text-[10px] text-white
+            placeholder-zinc-600
+            outline-none
+            focus:border-indigo-500
+        "
+    };
+
+    let button_class = if mobile {
+        "
+            shrink-0
+            px-3
+            py-2
+            bg-indigo-600
+            hover:bg-indigo-500
+            text-white
+            rounded
+            text-[9px]
+            font-black
+        "
+    } else {
+        "
+            shrink-0
+            px-3 py-1.5
+            bg-indigo-600
+            hover:bg-indigo-500
+            text-white
+            rounded
+            text-[9px]
+            font-black
+        "
+    };
+
+    rsx! {
+        div {
+            class: container_class,
+
+            div {
+                class: "flex items-center gap-2",
+
+                input {
+                    r#type: "text",
+                    placeholder: "Send message...",
+                    value: "{chat_input}",
+
+                    class: input_class,
+
+                    oninput: move |event| {
+                        chat_input.set(event.value());
+                    },
+
+                    onkeydown: move |event| {
+                        if event.key() == Key::Enter {
+                            let message = chat_input().trim().to_string();
+
+                            if !message.is_empty() {
+                                on_command.call(format!("say {}", message));
+                                chat_input.set(String::new());
+                            }
+                        }
+                    }
+                }
+
+                button {
+                    class: button_class,
+
+                    onclick: move |_| {
+                        let message = chat_input().trim().to_string();
+
+                        if !message.is_empty() {
+                            on_command.call(format!("say {}", message));
+                            chat_input.set(String::new());
+                        }
+                    },
+
+                    "SEND"
+                }
+            }
+        }
+    }
+}
+
+// =============================================================================
+// CONFIG
+// =============================================================================
 
 #[component]
 fn RconConfig(on_command: EventHandler<String>) -> Element {
@@ -966,7 +1081,8 @@ fn RconConfig(on_command: EventHandler<String>) -> Element {
 
             if show_config() {
                 div {
-                   class: "absolute top-8 left-1/2 -translate-x-1/2 z-50 bg-zinc-900 border border-zinc-700 rounded-lg p-3 shadow-xl w-[520px] max-w-[calc(100vw-2rem)]",
+                    class: "absolute top-8 left-1/2 -translate-x-1/2 z-50 bg-zinc-900 border border-zinc-700 rounded-lg p-3 shadow-xl w-[520px] max-w-[calc(100vw-2rem)]",
+
                     div {
                         class: "text-indigo-400 text-[10px] font-black tracking-widest pb-2 mb-3 border-b border-zinc-800",
                         "MATCH CONFIG"
