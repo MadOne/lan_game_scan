@@ -46,7 +46,7 @@ pub fn RconTab() -> Element {
                     .servers
                     .read()
                     .get(&addr)
-                    .and_then(|server| server.hostname.clone())
+                    .and_then(|server| server.scanned.hostname.clone())
             })
             .unwrap_or_else(|| active_val.clone())
     };
@@ -234,7 +234,7 @@ pub fn RconTab() -> Element {
                                             .read()
                                             .get(&addr_val)
                                             .and_then(|server| {
-                                                server.hostname.clone()
+                                                server.scanned.hostname.clone()
                                             })
                                             .unwrap_or_else(|| {
                                                 addr_str.clone()
@@ -380,7 +380,7 @@ pub fn RconTab() -> Element {
                                 .servers
                                 .read()
                                 .get(&addr_val)
-                                .and_then(|server| server.hostname.clone())
+                                .and_then(|server| server.scanned.hostname.clone())
                                 .unwrap_or_else(|| addr_str.clone());
 
                             rsx! {

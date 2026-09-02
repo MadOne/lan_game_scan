@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)] // Added Serialize/Deserialize
-pub struct GameServer {
+pub struct ScannedServer {
     pub socket_addr: SocketAddr,
     pub hostname: Option<String>,
     pub game: Option<String>,

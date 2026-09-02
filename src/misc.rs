@@ -2,7 +2,7 @@ use std::{collections::HashMap, net::SocketAddr};
 
 use dioxus::prelude::*;
 
-use crate::scanner::GameServer;
+use crate::state::GameServer;
 
 // Pop $number bytes from vector.
 // When number == 0 pop a 0 terminated string

@@ -225,15 +225,15 @@ impl RconSession {
         success_prefix: &str,
         error_prefix: &str,
     ) -> bool {
-        println!("[RCON DEBUG] Waiting for client lock: {}", command);
+        //println!("[RCON DEBUG] Waiting for client lock: {}", command);
 
         let mut client = self.client.lock().await;
 
-        println!("[RCON DEBUG] Client lock acquired: {}", command);
+        //println!("[RCON DEBUG] Client lock acquired: {}", command);
 
         match client.command(command).await {
             Ok(response) => {
-                println!("[RCON DEBUG] Command returned successfully");
+                //println!("[RCON DEBUG] Command returned successfully");
 
                 self.push_log(RconLogEvent::RconResponse(format!(
                     "{}{}",
@@ -244,7 +244,7 @@ impl RconSession {
             }
 
             Err(error) => {
-                println!("[RCON DEBUG] Command returned error: {}", error);
+                //println!("[RCON DEBUG] Command returned error: {}", error);
 
                 self.push_log(RconLogEvent::Info(format!("{}{}", error_prefix, error)));
 
@@ -529,29 +529,29 @@ impl RconSession {
     }
 
     pub async fn close(&mut self) -> bool {
-        println!("[SHUTDOWN] RconSession::close() entered");
+        //println!("[SHUTDOWN] RconSession::close() entered");
 
         if let Some(task) = self.live_log_task.take() {
-            println!("[SHUTDOWN] Stopping LiveLog task");
+            //println!("[SHUTDOWN] Stopping LiveLog task");
 
             task.cancel();
 
-            println!("[SHUTDOWN] LiveLog task stopped");
+            //println!("[SHUTDOWN] LiveLog task stopped");
         }
 
         let Some(log_url) = self.log_url.clone() else {
-            println!("[SHUTDOWN] No log URL");
+            //println!("[SHUTDOWN] No log URL");
             return true;
         };
 
         let command = format!("logaddress_del_http \"{}\"", log_url);
 
-        println!("[SHUTDOWN] Sending cleanup command: {}", command);
+        //println!("[SHUTDOWN] Sending cleanup command: {}", command);
 
         let mut client = self.client.lock().await;
         match client.command_no_response(&command).await {
             Ok(()) => {
-                println!("[SHUTDOWN] Cleanup command sent successfully");
+                //println!("[SHUTDOWN] Cleanup command sent successfully");
                 true
             }
 

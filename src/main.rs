@@ -14,7 +14,7 @@ mod state;
 
 use crate::app::{App, ShutdownSignal};
 use crate::scanner::*;
-use crate::server::GameServer;
+use crate::server::ScannedServer;
 
 use dioxus::desktop::tao::window::Icon;
 use dioxus::desktop::{tao, Config, LogicalSize, WindowBuilder, WindowCloseBehaviour};

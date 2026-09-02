@@ -1,7 +1,8 @@
 use crate::app::Route;
 use crate::misc::{connect_to_server, save_to_disk};
 
-use crate::{state::AppState, GameServer, TableMode};
+use crate::state::GameServer;
+use crate::{state::AppState, ScannedServer, TableMode};
 use cbz_rcon::RconStatus;
 use dioxus::prelude::*;
 use std::net::{IpAddr, SocketAddr};
@@ -67,7 +68,7 @@ fn ServerTable(
                             || mode == TableMode::Fav
                         {
                             ServerRow {
-                                key: "{srv.socket_addr}",
+                                key: "{srv.scanned.socket_addr}",
                                 srv: srv,
                                 mode: mode,
                                 selection: selection
@@ -91,7 +92,7 @@ fn ServerRow(
     mut selection: Signal<Option<SocketAddr>>,
 ) -> Element {
     let mut state = use_context::<AppState>();
-    let addr = srv.socket_addr;
+    let addr = srv.scanned.socket_addr;
     let is_selected = selection() == Some(addr);
     let is_fav = state
         .servers
@@ -99,7 +100,7 @@ fn ServerRow(
         .get(&addr)
         .map(|s| s.is_favorite)
         .unwrap_or(false);
-    let is_online = srv.ping.is_some();
+    let is_online = srv.scanned.ping.is_some();
 
     let row_cls = if is_selected {
         "bg-indigo-600/10 text-white shadow-inner"
@@ -110,7 +111,7 @@ fn ServerRow(
     };
 
     let ping_txt = if is_online {
-        format!("{}ms", srv.ping.unwrap())
+        format!("{}ms", srv.scanned.ping.unwrap())
     } else {
         "OFF".to_string()
     };
@@ -148,7 +149,7 @@ fn ServerRow(
 
             // PASSWORD (Hidden on mobile)
             td { class: "hidden md:table-cell p-4 text-center",
-                if srv.has_password {
+                if srv.scanned.has_password {
                     span { class: "text-zinc-400 text-sm", "🔒" }
                 } else {
                     span { class: "text-zinc-800 text-sm", "·" }
@@ -162,23 +163,23 @@ fn ServerRow(
             td { class: "hidden lg:table-cell p-4 truncate",
                 span {
                     class: "bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded text-[9px] font-bold uppercase",
-                    "{srv.game.clone().unwrap_or_else(|| \"---\".into())}"
+                    "{srv.scanned.game.clone().unwrap_or_else(|| \"---\".into())}"
                 }
             }
 
             // SERVER NAME (Flexible)
             td { class: "p-4 font-semibold truncate {hostname_color_cls}",
-                "{srv.hostname.clone().unwrap_or_default()}"
+                "{srv.scanned.hostname.clone().unwrap_or_default()}"
             }
 
             // MAP (Hidden on very small phones)
             td { class: "hidden sm:table-cell p-4 text-sm opacity-60 truncate",
-                "{srv.map.clone().unwrap_or_default()}"
+                "{srv.scanned.map.clone().unwrap_or_default()}"
             }
 
             // PLAYERS
             td { class: "p-4 text-xs text-center opacity-70",
-                "{srv.players.unwrap_or(0)}/{srv.players_max.unwrap_or(0)}"
+                "{srv.scanned.players.unwrap_or(0)}/{srv.scanned.players_max.unwrap_or(0)}"
             }
 
             // PING (Hidden on mobile)
@@ -208,9 +209,9 @@ pub fn LAN() -> Element {
         .read()
         .values()
         .filter(|s| {
-            let is_online = s.ping.is_some();
+            let is_online = s.scanned.ping.is_some();
 
-            let ip = s.socket_addr.ip();
+            let ip = s.scanned.socket_addr.ip();
 
             let is_local = match ip {
                 IpAddr::V4(v4) => v4.is_private() || v4.is_loopback(),
@@ -247,7 +248,7 @@ pub fn LAN() -> Element {
                     class: "shrink-0 mt-4",
 
                     ServerDetails {
-                        key: "{srv.socket_addr}",
+                        key: "{srv.scanned.socket_addr}",
                         srv: srv
                     }
                 }
@@ -337,7 +338,7 @@ pub fn Favourites() -> Element {
                     class: "shrink-0 mt-4",
 
                     ServerDetails {
-                        key: "{srv.socket_addr}",
+                        key: "{srv.scanned.socket_addr}",
                         srv: srv
                     }
                 }
@@ -381,11 +382,7 @@ fn AddServerForm(on_close: EventHandler<()>) -> Element {
                             .duration_since(SystemTime::UNIX_EPOCH)
                             .unwrap()
                             .as_secs() as i64;
-
-                        state.servers.with_mut(|m| {
-                            m.insert(
-                                addr,
-                                GameServer {
+                        let scanned_server = ScannedServer {
                                     socket_addr: addr,
                                     hostname: Some("Custom Server".into()),
                                     game: None,
@@ -400,7 +397,11 @@ fn AddServerForm(on_close: EventHandler<()>) -> Element {
                                     bots: None,
                                     has_password: false,
                                     password: None,
-                                },
+                                };
+                        state.servers.with_mut(|m| {
+                            m.insert(
+                                addr,
+                                GameServer { scanned: scanned_server, rcon_password: None, rcon_autologin: false, is_favorite: true, last_update: Some(now) }
                             );
 
                             save_to_disk(m);
@@ -431,23 +432,23 @@ fn ServerDetails(srv: GameServer) -> Element {
     let nav = use_navigator();
     let mut state = use_context::<AppState>();
 
-    let is_online = srv.ping.is_some();
-    let addr = srv.socket_addr;
+    let is_online = srv.scanned.ping.is_some();
+    let addr = srv.scanned.socket_addr;
 
     // ------------------------------------------------------------
     // LOCAL PASSWORD EDITING STATE
     // ------------------------------------------------------------
 
-    let mut server_password = use_signal(|| srv.password.clone().unwrap_or_default());
+    let mut server_password = use_signal(|| srv.scanned.password.clone().unwrap_or_default());
 
-    let mut rcon_password = use_signal(|| srv.rcon.clone().unwrap_or_default());
+    let mut rcon_password = use_signal(|| srv.rcon_password.clone().unwrap_or_default());
 
     // ------------------------------------------------------------
     // KEEP LOCAL PASSWORDS IN SYNC WITH SELECTED SERVER
     // ------------------------------------------------------------
 
     use_effect({
-        let password = srv.password.clone().unwrap_or_default();
+        let password = srv.scanned.password.clone().unwrap_or_default();
 
         move || {
             server_password.set(password.clone());
@@ -455,7 +456,7 @@ fn ServerDetails(srv: GameServer) -> Element {
     });
 
     use_effect({
-        let password = srv.rcon.clone().unwrap_or_default();
+        let password = srv.scanned.rcon.clone().unwrap_or_default();
 
         move || {
             rcon_password.set(password.clone());
@@ -488,26 +489,26 @@ fn ServerDetails(srv: GameServer) -> Element {
     // ------------------------------------------------------------
 
     let status_val = if is_online {
-        format!("{}ms Latency", srv.ping.unwrap())
+        format!("{}ms Latency", srv.scanned.ping.unwrap())
     } else {
         "Unreachable".to_string()
     };
 
     let player_val = format!(
         "{}/{}",
-        srv.players.unwrap_or(0),
-        srv.players_max.unwrap_or(0)
+        srv.scanned.players.unwrap_or(0),
+        srv.scanned.players_max.unwrap_or(0)
     );
 
     // ------------------------------------------------------------
     // SAVED PASSWORD STATE
     // ------------------------------------------------------------
 
-    let saved_password = srv.password.clone().unwrap_or_default();
+    let saved_password = srv.scanned.password.clone().unwrap_or_default();
 
     let password_changed = server_password() != saved_password;
 
-    let saved_rcon_password = srv.rcon.clone().unwrap_or_default();
+    let saved_rcon_password = srv.rcon_password.clone().unwrap_or_default();
 
     let rcon_password_changed = rcon_password() != saved_rcon_password;
 
@@ -525,7 +526,7 @@ fn ServerDetails(srv: GameServer) -> Element {
                     div {
                         h2 {
                             class: "text-xl font-black text-white tracking-tighter uppercase truncate max-w-md",
-                            "{srv.hostname.clone().unwrap_or_default()}"
+                            "{srv.scanned.hostname.clone().unwrap_or_default()}"
                         }
 
                         div {
@@ -535,7 +536,7 @@ fn ServerDetails(srv: GameServer) -> Element {
                                 "{addr}"
                             }
 
-                            if srv.has_password {
+                            if srv.scanned.has_password {
                                 span {
                                     class: "text-zinc-400",
                                     title: "Password protected",
@@ -580,7 +581,7 @@ fn ServerDetails(srv: GameServer) -> Element {
 
                                 class: "flex-1 min-w-[140px] max-w-xs bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-indigo-500",
 
-                                placeholder: if srv.has_password {
+                                placeholder: if srv.scanned.has_password {
                                     "Enter server password"
                                 } else {
                                     "No password"
@@ -604,7 +605,7 @@ fn ServerDetails(srv: GameServer) -> Element {
                                             if let Some(server) =
                                                 servers.get_mut(&addr)
                                             {
-                                                server.password =
+                                                server.scanned.password =
                                                     if value.is_empty() {
                                                         None
                                                     } else {
@@ -715,7 +716,7 @@ fn ServerDetails(srv: GameServer) -> Element {
                                                 if let Some(server) =
                                                     servers.get_mut(&addr)
                                                 {
-                                                    server.rcon =
+                                                    server.rcon_password =
                                                         if value.is_empty() {
                                                             None
                                                         } else {
@@ -787,7 +788,7 @@ fn ServerDetails(srv: GameServer) -> Element {
                                                 if let Some(server) =
                                                     servers.get_mut(&addr)
                                                 {
-                                                    server.rcon =
+                                                    server.rcon_password =
                                                         Some(password.clone());
 
                                                     save_to_disk(servers);
@@ -864,7 +865,7 @@ fn ServerDetails(srv: GameServer) -> Element {
 
         DetailBox {
             label: "Map".to_string(),
-            value: srv.map.clone().unwrap_or_default()
+            value: srv.scanned.map.clone().unwrap_or_default()
         }
 
         DetailBox {

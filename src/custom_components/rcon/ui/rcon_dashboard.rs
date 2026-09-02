@@ -117,12 +117,12 @@ fn RconServerCard(addr: SocketAddr) -> Element {
 
     let hostname = server
         .as_ref()
-        .and_then(|server| server.hostname.clone())
+        .and_then(|server| server.scanned.hostname.clone())
         .unwrap_or_else(|| addr.to_string());
 
     let current_map = server
         .as_ref()
-        .and_then(|server| server.map.clone())
+        .and_then(|server| server.scanned.map.clone())
         .unwrap_or_else(|| "UNKNOWN".to_string());
 
     // -------------------------------------------------------------------------

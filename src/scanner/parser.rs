@@ -13,13 +13,13 @@ use tokio::sync::mpsc;
 use std::collections::{HashMap, VecDeque};
 
 use crate::helper::pop_bytes;
-use crate::server::GameServer;
+use crate::server::ScannedServer;
 
 pub struct Parser {
     udp_listener_receiver: Arc<Mutex<Receiver<(Vec<u8>, SocketAddr)>>>,
-    sender_parsed: Arc<Sender<GameServer>>,
+    sender_parsed: Arc<Sender<ScannedServer>>,
     udp_sender_sender: Arc<Sender<(Vec<u8>, SocketAddr)>>,
-    pub receiver_parsed: Arc<Mutex<Receiver<GameServer>>>,
+    pub receiver_parsed: Arc<Mutex<Receiver<ScannedServer>>>,
     ping: Arc<SyncMutex<HashMap<SocketAddr, Instant>>>,
 }
 
@@ -29,7 +29,7 @@ impl Parser {
         sender_udp: Sender<(Vec<u8>, SocketAddr)>,
         ping: Arc<SyncMutex<HashMap<SocketAddr, Instant>>>,
     ) -> Parser {
-        let (parser_sender, parser_receiver) = mpsc::channel::<GameServer>(1_000);
+        let (parser_sender, parser_receiver) = mpsc::channel::<ScannedServer>(1_000);
         Parser {
             udp_listener_receiver: Arc::new(Mutex::new(udp_listener_receiver)),
             sender_parsed: Arc::new(parser_sender),
@@ -52,7 +52,7 @@ impl Parser {
 
     pub async fn parse_response(
         listener_receiver: Arc<Mutex<Receiver<(Vec<u8>, SocketAddr)>>>,
-        sender_processed: Arc<Sender<GameServer>>,
+        sender_processed: Arc<Sender<ScannedServer>>,
         sender_udp: Arc<Sender<(Vec<u8>, SocketAddr)>>,
         ping: Arc<SyncMutex<HashMap<SocketAddr, Instant>>>,
     ) {
@@ -82,7 +82,7 @@ impl Parser {
                     if false {
                         println!("{}: {:?}", addr, newmap);
                     }
-                    let resp = GameServer {
+                    let resp = ScannedServer {
                         socket_addr: addr,
                         hostname: Some(newmap.get("sv_hostname").unwrap().to_string()),
                         game: Some(newmap.get("gamename").unwrap().to_string()),
@@ -190,7 +190,7 @@ impl Parser {
                         730 => "CS2".to_string(),
                         _ => server_game.clone(),
                     };
-                    let resp = GameServer {
+                    let resp = ScannedServer {
                         socket_addr: addr,
                         hostname: Some(server_name),
                         game: Some(game_name),
@@ -231,10 +231,10 @@ impl Parser {
                         newmap.insert(d[i], d[i + 1]);
                         i += 2;
                     }
-                    if false {
+                    if true {
                         println!("{}: {:?}", addr, newmap);
                     }
-                    let resp = GameServer {
+                    let resp = ScannedServer {
                         socket_addr: addr,
                         hostname: Some(newmap.get("hostname").unwrap().to_string()),
                         game: Some(newmap.get("gamename").unwrap_or(&"").to_string()),

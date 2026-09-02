@@ -5,6 +5,7 @@ pub mod console_filters;
 pub mod console_input;
 pub mod console_logs;
 pub mod create_config;
+pub mod cvar_filters;
 pub mod overview;
 pub mod pretty;
 pub mod rcon_dashboard;

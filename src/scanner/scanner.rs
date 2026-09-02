@@ -11,11 +11,11 @@ use std::time::Instant;
 
 use crate::broadcast::Broadcast;
 use crate::parser::Parser;
-use crate::server::GameServer;
+use crate::server::ScannedServer;
 use crate::udp_listener::UdpListener;
 use crate::udp_sender::UdpSender;
 
-pub async fn create_scaner() -> (Arc<Mutex<Receiver<GameServer>>>, Sender<SocketAddr>) {
+pub async fn create_scaner() -> (Arc<Mutex<Receiver<ScannedServer>>>, Sender<SocketAddr>) {
     let ping: Arc<std::sync::Mutex<HashMap<SocketAddr, Instant>>> =
         Arc::new(std::sync::Mutex::new(HashMap::new()));
 

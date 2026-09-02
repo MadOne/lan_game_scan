@@ -7,6 +7,7 @@ use crate::custom_components::Navbar;
 use crate::misc::load_from_disk;
 use crate::scanner::create_scaner;
 use crate::state::AppState;
+use crate::state::GameServer;
 use dioxus::prelude::*;
 use std::net::SocketAddr;
 use std::{
@@ -164,18 +165,21 @@ pub fn App() -> Element {
 
             state.servers.with_mut(|map| {
                 if let Some(existing) = map.get_mut(&incoming.socket_addr) {
-                    existing.hostname = incoming.hostname;
-                    existing.game = incoming.game;
-                    existing.players = incoming.players;
-                    existing.players_max = incoming.players_max;
-                    existing.map = incoming.map;
+                    existing.scanned = incoming;
                     existing.last_update = Some(now);
-                    existing.ping = incoming.ping;
-                    existing.bots = incoming.bots;
-                    existing.has_password = incoming.has_password
                 } else {
-                    incoming.is_favorite = false;
-                    map.insert(incoming.socket_addr, incoming);
+                    let socket_addr = incoming.socket_addr;
+
+                    map.insert(
+                        socket_addr,
+                        GameServer {
+                            scanned: incoming,
+                            rcon_password: None,
+                            rcon_autologin: false,
+                            is_favorite: false,
+                            last_update: Some(now),
+                        },
+                    );
                 }
             });
         }
@@ -218,11 +222,11 @@ pub fn App() -> Element {
                         let elapsed = now - srv.last_update.unwrap_or(0);
 
                         if elapsed >= timeout {
-                            srv.ping = None;
+                            srv.scanned.ping = None;
                         }
 
                         if elapsed >= 6 {
-                            to_ping.push(srv.socket_addr);
+                            to_ping.push(srv.scanned.socket_addr);
                         }
                     }
                 }

@@ -1,4 +1,5 @@
-use crate::custom_components::cvar::CvarDatabase;
+use crate::custom_components::cvar::CvarFlag;
+use crate::custom_components::ui::cvar_filters::CvarFilters;
 use crate::{
     custom_components::rcon::{
         code::RconLogEvent,
@@ -21,17 +22,15 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
 
     let mut inner_tab = use_signal(|| RconSubTab::Overview);
 
-    let visible_events = use_signal(|| LogType::all().collect::<HashSet<LogType>>());
+    //let visible_events = use_signal(|| LogType::all().collect::<HashSet<LogType>>());
 
-    let filter_popup_open = use_signal(|| false);
+    //let filter_popup_open = use_signal(|| false);
 
     // -------------------------------------------------------------------------
     // Command history
     //
     // This belongs to RconConsole so it survives switching between tabs.
     // -------------------------------------------------------------------------
-
-    let command_history = use_signal(Vec::<String>::new);
 
     let sessions = state.rcon_sessions.read();
 
@@ -59,6 +58,21 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
     let client = session.client.clone();
     let maps = session.maps;
     let cvar_db = session.cvar_db;
+    let cvar_filter_popup_open = use_signal(|| false);
+    let command_history = session.command_history;
+
+    let visible_events = use_signal(|| LogType::all().collect::<HashSet<LogType>>());
+
+    let filter_popup_open = use_signal(|| false);
+
+    let cvar_filters = use_signal(|| {
+        HashSet::from([
+            CvarFlag::MenuBarItem,
+            CvarFlag::VConsoleFuzzy,
+            CvarFlag::VConsoleSetFocus,
+            CvarFlag::DevelopmentOnly,
+        ])
+    });
 
     // -------------------------------------------------------------------------
     // Server information
@@ -68,22 +82,22 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
 
     let hostname = server
         .as_ref()
-        .and_then(|server| server.hostname.clone())
+        .and_then(|server| server.scanned.hostname.clone())
         .unwrap_or_else(|| "UNKNOWN SERVER".to_string());
 
     let map = server
         .as_ref()
-        .and_then(|server| server.map.clone())
+        .and_then(|server| server.scanned.map.clone())
         .unwrap_or_else(|| "UNKNOWN".to_string());
 
     let player_count = server
         .as_ref()
-        .and_then(|server| server.players)
+        .and_then(|server| server.scanned.players)
         .unwrap_or(0);
 
     let player_max = server
         .as_ref()
-        .and_then(|server| server.players_max)
+        .and_then(|server| server.scanned.players_max)
         .unwrap_or(0);
 
     drop(sessions);
@@ -345,9 +359,18 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
                                 // FILTER BAR
                                 // -------------------------------------------------
 
-                                ConsoleFilters {
-                                    visible_events,
-                                    filter_popup_open,
+                                div {
+                                    class: "shrink-0 flex items-center gap-2 px-3 py-2 bg-zinc-900 border-b border-zinc-800",
+
+                                    ConsoleFilters {
+                                        visible_events,
+                                        filter_popup_open,
+                                    }
+
+                                    CvarFilters {
+                                        filters: cvar_filters,
+                                        popup_open: cvar_filter_popup_open,
+                                    }
                                 }
 
                                 // -------------------------------------------------
@@ -365,6 +388,7 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
 
                                 RconCommandInput {
                                     cvar_db,
+                                    cvar_filters,
                                     command_history,
 
                                     on_command: move |command: String| {

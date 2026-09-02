@@ -47,7 +47,11 @@ impl Broadcast {
                 b"\xFF\xFF\xFF\xFF\x67\x65\x74\x73\x74\x61\x74\x75\x73\x0A"; //getstatus
 
         // let gs_info = b"\x5C\x69\x6E\x66\x6F\x5C"; //info
-        let gs_status = b"\x5C\x73\x74\x61\x74\x75\x73\x5C"; //status
+        let ut2k4_query = b"\x5C\x73\x74\x61\x74\x75\x73\x5C"; //status
+
+        // Anstatt nur \status\ senden wir \status\ und fordern eine Paket-ID an
+        let gs_status = b"\x5C\x73\x74\x61\x74\x75\x73\x5C\x6E\x75\x6D\x62\x65\x72\x5C\x31";
+        // Das entspricht im Klartext: \status\\number\1
 
         loop {
             tokio::select! {
@@ -66,10 +70,18 @@ impl Broadcast {
                     }
                     for port in &utports {
                         let socket_addr = SocketAddr::new(broadcast_ip_addr, *port);
-                        let _ = tx.send((gs_status.to_vec(), socket_addr)).await;
+
+                        // 1. Bestimme das exakte Paket für den jeweiligen Port
+                        let payload = match *port {
+                            12203 | 12300 => gs_status.to_vec(), // Reines MoHAA \status\ Klartext
+                            _ => ut2k4_query.to_vec(),           // Zurück zur funktionierenden UT2k4-Query
+                        };
+
+                        // 2. Paket absenden (Kein "continue" mehr, damit alle Ports gescannt werden!)
+                        let _ = tx.send((payload, socket_addr)).await;
                         ping.lock().unwrap().insert(socket_addr, Instant::now());
-                        //let _ = tx.send((gs_info.to_vec(), socket_addr)).await;
-            }}
+                    }
+                }
                 Some(socket_addr) = receive_query_command.recv() => {
                     ping.lock().unwrap().insert(socket_addr, Instant::now());
                     let _ = tx.send((source_query.to_vec(), socket_addr)).await;

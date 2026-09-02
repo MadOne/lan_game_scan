@@ -148,10 +148,10 @@ impl RconClient {
 
         let response = self.receive_packet().await?;
 
-        println!(
+        /*println!(
             "[RCON] Auth response: id={}, type={}, body={:?}",
             response.id, response.packet_type, response.body
-        );
+        );*/
 
         // Source RCON authentication failure is indicated by ID -1.
         if response.id == -1 {
@@ -185,21 +185,21 @@ impl RconClient {
     }
 
     pub async fn command(&mut self, command: &str) -> Result<String, RconError> {
-        println!("[RCON DEBUG] command(): sending '{}'", command);
+        //println!("[RCON DEBUG] command(): sending '{}'", command);
 
         let packet = RconPacket::new(1, 2, command);
 
-        println!("[RCON DEBUG] command(): calling send_packet()");
+        //println!("[RCON DEBUG] command(): calling send_packet()");
 
         self.send_packet(&packet).await?;
 
-        println!("[RCON DEBUG] command(): send_packet() returned");
+        //println!("[RCON DEBUG] command(): send_packet() returned");
 
-        println!("[RCON DEBUG] command(): calling receive_packet()");
+        //println!("[RCON DEBUG] command(): calling receive_packet()");
 
         let response = self.receive_packet().await?;
 
-        println!("[RCON DEBUG] command(): receive_packet() returned");
+        //println!("[RCON DEBUG] command(): receive_packet() returned");
 
         Ok(response.body)
     }
@@ -211,21 +211,21 @@ impl RconClient {
     }
 
     async fn send_packet(&mut self, packet: &RconPacket) -> Result<(), RconError> {
-        println!("[RCON DEBUG] send_packet(): entered");
+        //println!("[RCON DEBUG] send_packet(): entered");
 
         let stream = self.stream.as_mut().ok_or(RconError::NotConnected)?;
 
-        println!("[RCON DEBUG] send_packet(): stream available");
+        //println!("[RCON DEBUG] send_packet(): stream available");
 
         let bytes = packet.to_bytes();
 
-        println!("[RCON DEBUG] send_packet(): writing {} bytes", bytes.len());
+        //println!("[RCON DEBUG] send_packet(): writing {} bytes", bytes.len());
 
         timeout(Duration::from_secs(3), stream.write_all(&bytes))
             .await
             .map_err(|_| RconError::Timeout)??;
 
-        println!("[RCON DEBUG] send_packet(): write completed");
+        //println!("[RCON DEBUG] send_packet(): write completed");
 
         Ok(())
     }

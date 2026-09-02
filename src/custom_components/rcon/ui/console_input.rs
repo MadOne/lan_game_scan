@@ -2,9 +2,21 @@ use crate::custom_components::cvar::{Cvar, CvarDatabase, CvarFlag};
 use dioxus::prelude::*;
 use std::collections::HashSet;
 
+// =============================================================================
+// CONSTANTS
+// =============================================================================
+
+const MAX_COMMAND_HISTORY: usize = 100;
+
+// =============================================================================
+// RCON COMMAND INPUT
+// =============================================================================
+
+#[component]
 #[component]
 pub fn RconCommandInput(
     cvar_db: Signal<Option<CvarDatabase>>,
+    cvar_filters: Signal<HashSet<CvarFlag>>,
     command_history: Signal<Vec<String>>,
     on_command: EventHandler<String>,
 ) -> Element {
@@ -169,14 +181,9 @@ pub fn RconCommandInput(
                             return;
                         };
 
-                        let mut filter = HashSet::new();
+                        let filters = cvar_filters.read();
 
-                        filter.insert(CvarFlag::MenuBarItem);
-                        filter.insert(CvarFlag::VConsoleFuzzy);
-                        filter.insert(CvarFlag::VConsoleSetFocus);
-                        filter.insert(CvarFlag::DevelopmentOnly);
-
-                        let results = db.get_suggestions(&query, &filter);
+                        let results = db.get_suggestions(&query, &filters);
 
                         suggestion_index.set(None);
                         suggestions.set(results);
@@ -208,11 +215,7 @@ pub fn RconCommandInput(
 
                             if key == Key::ArrowUp {
                                 let new_index = match suggestion_index() {
-                                    None => {
-                                        // First navigation with ArrowUp:
-                                        // start at the bottom.
-                                        count - 1
-                                    }
+                                    None => count - 1,
 
                                     Some(index) if index == 0 => {
                                         count - 1
@@ -229,9 +232,7 @@ pub fn RconCommandInput(
 
                             if key == Key::ArrowDown {
                                 let new_index = match suggestion_index() {
-                                    None => {
-                                        0
-                                    }
+                                    None => 0,
 
                                     Some(index) if index + 1 >= count => {
                                         0
@@ -346,11 +347,7 @@ pub fn RconCommandInput(
                             suggestion_index.set(None);
                             history_index.set(None);
 
-                            command_history.with_mut(|history| {
-                                if history.last() != Some(&cmd) {
-                                    history.push(cmd.clone());
-                                }
-                            });
+                            add_to_command_history(&mut command_history, &cmd);
 
                             on_command.call(cmd);
                         }
@@ -378,11 +375,7 @@ pub fn RconCommandInput(
                         suggestion_index.set(None);
                         history_index.set(None);
 
-                        command_history.with_mut(|history| {
-                            if history.last() != Some(&cmd) {
-                                history.push(cmd.clone());
-                            }
-                        });
+                        add_to_command_history(&mut command_history, &cmd);
 
                         on_command.call(cmd);
                     },
@@ -392,4 +385,25 @@ pub fn RconCommandInput(
             }
         }
     }
+}
+
+// =============================================================================
+// COMMAND HISTORY
+// =============================================================================
+
+fn add_to_command_history(command_history: &mut Signal<Vec<String>>, command: &str) {
+    command_history.with_mut(|history| {
+        // Don't add the same command twice in a row.
+        if history.last().is_some_and(|last| last == command) {
+            return;
+        }
+
+        history.push(command.to_string());
+
+        // Keep only the newest MAX_COMMAND_HISTORY entries.
+        if history.len() > MAX_COMMAND_HISTORY {
+            let excess = history.len() - MAX_COMMAND_HISTORY;
+            history.drain(0..excess);
+        }
+    });
 }
