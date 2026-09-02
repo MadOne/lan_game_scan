@@ -72,7 +72,7 @@ impl Parser {
                     let info = resp_split_newline[0];
                     let d: Vec<&str> = info.split("\\").collect();
                     //println!("{:?}", &info);
-                    println!("players: {players}");
+                    //println!("players: {players}");
                     let mut newmap: BTreeMap<&str, &str> = BTreeMap::new();
                     let mut i = 0;
                     while i < d.len() {
@@ -90,10 +90,7 @@ impl Parser {
                         players: Some(players as u8),
                         players_max: Some(newmap.get("sv_maxclients").unwrap().parse().unwrap()),
                         query_port: Some(addr.port()),
-                        rcon: None,
                         ping: Parser::calc_ping(&ping, addr),
-                        last_update: Some(now as i64),
-                        is_favorite: false,
                         bots: None,
                         has_password: false,
                         password: None,
@@ -198,10 +195,7 @@ impl Parser {
                         players: Some(server_players),
                         players_max: Some(server_players_max),
                         query_port: Some(addr.port()),
-                        rcon: None,
                         ping: Parser::calc_ping(&ping, addr),
-                        last_update: Some(now as i64),
-                        is_favorite: false,
                         bots: Some(server_bots),
                         has_password: has_password,
                         password: None,
@@ -224,14 +218,14 @@ impl Parser {
                 {
                     let b = String::from_utf8(response[1..response_length].to_vec()).unwrap();
                     let d: Vec<&str> = b.split("\\").collect();
-                    println!("{:?}", &b);
+                    //println!("{:?}", &b);
                     let mut newmap: BTreeMap<&str, &str> = BTreeMap::new();
                     let mut i = 0;
                     while i < d.len() {
                         newmap.insert(d[i], d[i + 1]);
                         i += 2;
                     }
-                    if true {
+                    if false {
                         println!("{}: {:?}", addr, newmap);
                     }
                     let resp = ScannedServer {
@@ -242,10 +236,7 @@ impl Parser {
                         players: Some(newmap.get("numplayers").unwrap().parse().unwrap()),
                         players_max: Some(newmap.get("maxplayers").unwrap().parse().unwrap()),
                         query_port: Some(addr.port()),
-                        rcon: None,
                         ping: Parser::calc_ping(&ping, addr),
-                        last_update: Some(now as i64),
-                        is_favorite: false,
                         bots: None,
                         has_password: false,
                         password: None,

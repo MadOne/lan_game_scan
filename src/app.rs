@@ -144,6 +144,38 @@ pub fn App() -> Element {
     });
 
     use_context_provider(|| connect_rcon);
+
+    // ------------------------------------------------------------
+    // AUTO-CONNECT ON STARTUP
+    // ------------------------------------------------------------
+    use_future(move || {
+        let connect_fn = connect_rcon;
+
+        async move {
+            // 1. Sicheres Auslesen der Autologin-Daten ohne dauerhaften Read-Lock auf das Signal
+            let autoconnect_targets: Vec<(SocketAddr, String)> = state.servers.with(|map| {
+                map.iter()
+                    .filter(|(_, srv)| srv.rcon_autologin && srv.rcon_password.is_some())
+                    .map(|(addr, srv)| (*addr, srv.rcon_password.clone().unwrap()))
+                    .collect()
+            });
+
+            if !autoconnect_targets.is_empty() {
+                println!(
+                    "[AUTO-CONNECT] Found {} server(s) for autologin",
+                    autoconnect_targets.len()
+                );
+
+                // 2. Verbindungen asynchron starten
+                for (addr, password) in autoconnect_targets {
+                    println!("[AUTO-CONNECT] Triggering autologin for {}", addr);
+                    // Wir nutzen den bestehenden Callback, der bereits intern `spawn` verwendet
+                    connect_fn.call((addr, password));
+                }
+            }
+        }
+    });
+
     // ------------------------------------------------------------
     // 1. DISCOVERY SCANNER
     // ------------------------------------------------------------
@@ -160,8 +192,6 @@ pub fn App() -> Element {
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap()
                 .as_secs() as i64;
-
-            incoming.last_update = Some(now);
 
             state.servers.with_mut(|map| {
                 if let Some(existing) = map.get_mut(&incoming.socket_addr) {

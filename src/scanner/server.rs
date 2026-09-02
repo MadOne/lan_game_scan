@@ -12,12 +12,9 @@ pub struct ScannedServer {
     pub players: Option<u8>,
     pub players_max: Option<u8>,
     pub query_port: Option<u16>,
-    pub rcon: Option<String>, // This is where we store the password
     #[serde(skip)] // Don't save live ping to disk
     pub ping: Option<u16>,
     #[serde(skip)] // Don't save live timestamp to disk
-    pub last_update: Option<i64>,
-    pub is_favorite: bool,
     pub bots: Option<u8>,
     pub has_password: bool,
     pub password: Option<String>,

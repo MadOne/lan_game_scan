@@ -24,5 +24,6 @@ pub struct GameServer {
     pub rcon_password: Option<String>,
     pub rcon_autologin: bool,
     pub is_favorite: bool,
+    #[serde(skip)]
     pub last_update: Option<i64>,
 }

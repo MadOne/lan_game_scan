@@ -390,10 +390,7 @@ fn AddServerForm(on_close: EventHandler<()>) -> Element {
                                     players: None,
                                     players_max: None,
                                     query_port: Some(addr.port()),
-                                    rcon: None,
                                     ping: None,
-                                    last_update: Some(now),
-                                    is_favorite: true,
                                     bots: None,
                                     has_password: false,
                                     password: None,
@@ -456,7 +453,7 @@ fn ServerDetails(srv: GameServer) -> Element {
     });
 
     use_effect({
-        let password = srv.scanned.rcon.clone().unwrap_or_default();
+        let password = srv.rcon_password.clone().unwrap_or_default();
 
         move || {
             rcon_password.set(password.clone());
@@ -681,131 +678,137 @@ fn ServerDetails(srv: GameServer) -> Element {
                         div {
                             class: "flex flex-wrap items-center gap-3",
 
-                            if !is_authenticated {
-                                span {
-                                    class: "text-[10px] text-zinc-500 font-black uppercase tracking-widest whitespace-nowrap",
-                                    "RCON PASSWORD"
+                        if !is_authenticated {
+                            span {
+                                class: "text-[10px] text-zinc-500 font-black uppercase tracking-widest whitespace-nowrap",
+                                "RCON PASSWORD"
+                            }
+
+                            input {
+                                r#type: "password",
+                                class: "flex-1 min-w-[140px] max-w-xs bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-indigo-500",
+                                placeholder: "RCON password",
+                                value: "{rcon_password}",
+                                disabled: is_connecting,
+                                oninput: move |event| {
+                                    rcon_password.set(event.value());
                                 }
+                            }
 
-                                input {
-                                    r#type: "password",
-
-                                    class: "flex-1 min-w-[140px] max-w-xs bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-indigo-500",
-
-                                    placeholder: "RCON password",
-
-                                    value: "{rcon_password}",
-
-                                    disabled: is_connecting,
-
-                                    oninput: move |event| {
-                                        rcon_password.set(event.value());
-                                    }
-                                }
-
-                                if rcon_password_changed {
-                                    button {
-                                        class: "bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase",
-
+                            // ------------------------------------------------
+                            // AUTOCONNECT CHECKBOX (Nur anzeigen, wenn ein Passwort existiert/eingegeben wird)
+                            // ------------------------------------------------
+                            if !rcon_password().is_empty() {
+                                label {
+                                    class: "flex items-center gap-2 cursor-pointer select-none text-[10px] text-zinc-400 hover:text-zinc-200 font-bold uppercase tracking-wider",
+                                    input {
+                                        r#type: "checkbox",
+                                        class: "w-3 h-3 rounded bg-zinc-950 border-zinc-700 text-indigo-600 focus:ring-0 focus:ring-offset-0 cursor-pointer accent-indigo-600",
+                                        checked: state.servers.with(|servers| {
+                                            servers.get(&addr).map(|s| s.rcon_autologin).unwrap_or(false)
+                                        }),
                                         disabled: is_connecting,
-
-                                        onclick: move |_| {
-                                            let value = rcon_password();
-
+                                        onchange: move |event| {
+                                            let is_checked = event.value().parse::<bool>().unwrap_or(false);
                                             state.servers.with_mut(|servers| {
-                                                if let Some(server) =
-                                                    servers.get_mut(&addr)
-                                                {
-                                                    server.rcon_password =
-                                                        if value.is_empty() {
-                                                            None
-                                                        } else {
-                                                            Some(value.clone())
-                                                        };
-
+                                                if let Some(server) = servers.get_mut(&addr) {
+                                                    server.rcon_autologin = is_checked;
                                                     save_to_disk(servers);
                                                 }
                                             });
-                                        },
-
-                                        "SAVE"
-                                    }
-                                } else if !rcon_password().is_empty() {
-                                    span {
-                                        class: "text-[10px] text-emerald-500 font-bold uppercase whitespace-nowrap",
-                                        "SAVED"
-                                    }
-                                } else {
-                                    span {
-                                        class: "text-[10px] text-zinc-700 font-bold uppercase whitespace-nowrap",
-                                        "NOT SET"
-                                    }
-                                }
-
-                                if !rcon_password().is_empty() {
-                                    button {
-                                        class: "text-[10px] text-zinc-500 hover:text-red-400 font-bold uppercase whitespace-nowrap",
-
-                                        disabled: is_connecting,
-
-                                        onclick: move |_| {
-                                            rcon_password.set(String::new());
-                                        },
-
-                                        "CLEAR"
-                                    }
-                                }
-
-                                // ------------------------------------------------
-                                // LOGIN
-                                // ------------------------------------------------
-
-                                button {
-                                    class: if is_connecting {
-                                        "bg-zinc-700 text-zinc-500 px-4 py-2 rounded-lg text-[10px] font-black cursor-not-allowed"
-                                    } else {
-                                        "bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-[10px] font-black"
-                                    },
-
-                                    disabled: is_connecting,
-
-                                    onclick: {
-                                        let addr = addr;
-                                        let connect_rcon = connect_rcon;
-
-                                        move |_| {
-                                            if is_connecting {
-                                                return;
-                                            }
-
-                                            let password = rcon_password();
-
-                                            if password.is_empty() {
-                                                return;
-                                            }
-
-                                            state.servers.with_mut(|servers| {
-                                                if let Some(server) =
-                                                    servers.get_mut(&addr)
-                                                {
-                                                    server.rcon_password =
-                                                        Some(password.clone());
-
-                                                    save_to_disk(servers);
-                                                }
-                                            });
-
-                                            connect_rcon.call((addr, password));
                                         }
-                                    },
-
-                                    if is_connecting {
-                                        "CONNECTING..."
-                                    } else {
-                                        "LOGIN"
                                     }
+                                    "Auto-Connect"
+                                }
+                            }
+
+                            if rcon_password_changed {
+                                button {
+                                    class: "bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase",
+                                    disabled: is_connecting,
+                                    onclick: move |_| {
+                                        let value = rcon_password();
+                                        state.servers.with_mut(|servers| {
+                                            if let Some(server) = servers.get_mut(&addr) {
+                                                server.rcon_password = if value.is_empty() {
+                                                    server.rcon_autologin = false; // Autologin deaktivieren, falls Passwort gelöscht wird
+                                                    None
+                                                } else {
+                                                    Some(value.clone())
+                                                };
+                                                save_to_disk(servers);
+                                            }
+                                        });
+                                    },
+                                    "SAVE"
+                                }
+                            } else if !rcon_password().is_empty() {
+                                span {
+                                    class: "text-[10px] text-emerald-500 font-bold uppercase whitespace-nowrap",
+                                    "SAVED"
                                 }
                             } else {
+                                span {
+                                    class: "text-[10px] text-zinc-700 font-bold uppercase whitespace-nowrap",
+                                    "NOT SET"
+                                }
+                            }
+
+                            if !rcon_password().is_empty() {
+                                button {
+                                    class: "text-[10px] text-zinc-500 hover:text-red-400 font-bold uppercase whitespace-nowrap",
+                                    disabled: is_connecting,
+                                    onclick: move |_| {
+                                        rcon_password.set(String::new());
+                                        // Beim expliziten Löschen auch Autologin deaktivieren
+                                        state.servers.with_mut(|servers| {
+                                            if let Some(server) = servers.get_mut(&addr) {
+                                                server.rcon_autologin = false;
+                                                save_to_disk(servers);
+                                            }
+                                        });
+                                    },
+                                    "CLEAR"
+                                }
+                            }
+
+                            // ------------------------------------------------
+                            // LOGIN
+                            // ------------------------------------------------
+                            button {
+                                class: if is_connecting {
+                                    "bg-zinc-700 text-zinc-500 px-4 py-2 rounded-lg text-[10px] font-black cursor-not-allowed"
+                                } else {
+                                    "bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-[10px] font-black"
+                                },
+                                disabled: is_connecting,
+                                onclick: {
+                                    let addr = addr;
+                                    let connect_rcon = connect_rcon;
+                                    move |_| {
+                                        if is_connecting {
+                                            return;
+                                        }
+                                        let password = rcon_password();
+                                        if password.is_empty() {
+                                            return;
+                                        }
+                                        state.servers.with_mut(|servers| {
+                                            if let Some(server) = servers.get_mut(&addr) {
+                                                server.rcon_password = Some(password.clone());
+                                                save_to_disk(servers);
+                                            }
+                                        });
+                                        connect_rcon.call((addr, password));
+                                    }
+                                },
+                                if is_connecting {
+                                    "CONNECTING..."
+                                } else {
+                                    "LOGIN"
+                                }
+                            }
+                        } else {
                                 // ------------------------------------------------
                                 // AUTHENTICATED
                                 // ------------------------------------------------
@@ -852,9 +855,6 @@ fn ServerDetails(srv: GameServer) -> Element {
                     }
                 }
 
-                // ========================================================
-                // SERVER DETAILS
-                // ========================================================
 
                 // ========================================================
     // SERVER DETAILS
