@@ -6,8 +6,10 @@ use crate::custom_components::ui::RconTab;
 use crate::custom_components::Navbar;
 use crate::misc::load_from_disk;
 use crate::scanner::create_scaner;
+use crate::scanner::ServerProtocol;
 use crate::state::AppState;
 use crate::state::GameServer;
+use cbz_rcon::RconProtocol;
 use dioxus::prelude::*;
 use std::net::SocketAddr;
 use std::{

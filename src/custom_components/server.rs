@@ -394,6 +394,7 @@ fn AddServerForm(on_close: EventHandler<()>) -> Element {
                                     bots: None,
                                     has_password: false,
                                     password: None,
+                                    protocol: crate::scanner::ServerProtocol::Unknown
                                 };
                         state.servers.with_mut(|m| {
                             m.insert(

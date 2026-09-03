@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 
+use crate::scanner::ServerProtocol;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)] // Added Serialize/Deserialize
 pub struct ScannedServer {
     pub socket_addr: SocketAddr,
@@ -18,4 +20,5 @@ pub struct ScannedServer {
     pub bots: Option<u8>,
     pub has_password: bool,
     pub password: Option<String>,
+    pub protocol: ServerProtocol,
 }

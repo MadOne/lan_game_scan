@@ -51,7 +51,7 @@ pub fn RconCommandInput(
                         {
                             let command = suggestion.name.clone();
                             let value = suggestion.value.clone();
-                            let description = suggestion.description.clone();
+                            let description = suggestion.description.clone().unwrap_or_default();
 
                             let flags = suggestion
                                 .flags

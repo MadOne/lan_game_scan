@@ -2,6 +2,7 @@
 
 use core::net::SocketAddr;
 
+use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Mutex as SyncMutex;
 use std::time::{Instant, SystemTime};
@@ -14,6 +15,16 @@ use std::collections::{HashMap, VecDeque};
 
 use crate::helper::pop_bytes;
 use crate::server::ScannedServer;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ServerProtocol {
+    GoldSrc,
+    Source,
+    Source2,
+    Quake3,
+    GameSpy,
+    Unknown,
+}
 
 pub struct Parser {
     udp_listener_receiver: Arc<Mutex<Receiver<(Vec<u8>, SocketAddr)>>>,
@@ -94,6 +105,7 @@ impl Parser {
                         bots: None,
                         has_password: false,
                         password: None,
+                        protocol: ServerProtocol::Quake3,
                     };
                     let _ = sender_processed.send(resp).await;
                 }
@@ -187,6 +199,13 @@ impl Parser {
                         730 => "CS2".to_string(),
                         _ => server_game.clone(),
                     };
+
+                    let protocol = match server_id {
+                        730 => ServerProtocol::Source2,
+                        id if id < 200 => ServerProtocol::GoldSrc,
+                        _ => ServerProtocol::Source,
+                    };
+
                     let resp = ScannedServer {
                         socket_addr: addr,
                         hostname: Some(server_name),
@@ -199,6 +218,7 @@ impl Parser {
                         bots: Some(server_bots),
                         has_password: has_password,
                         password: None,
+                        protocol,
                     };
                     let _ = sender_processed.send(resp).await;
                 }
@@ -240,6 +260,7 @@ impl Parser {
                         bots: None,
                         has_password: false,
                         password: None,
+                        protocol: ServerProtocol::GameSpy,
                     };
 
                     let _ = sender_processed.send(resp).await;

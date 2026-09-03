@@ -5,7 +5,7 @@ pub struct Cvar {
     pub name: String,
     pub value: String,
     pub flags: Vec<CvarFlag>,
-    pub description: String,
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Copy)]
@@ -55,7 +55,7 @@ impl CvarDatabase {
         let mut db = Self {
             cvars: HashMap::new(),
         };
-
+        println!("cvarlist creatred");
         db.parse(cvar_list);
         db
     }
@@ -69,59 +69,24 @@ impl CvarDatabase {
             self.parse_line(line);
         }
     }
-
     fn parse_line(&mut self, line: &str) {
-        let mut split = line.splitn(4, ':');
-        let name = split.next().unwrap().trim();
-        let value = split.next().unwrap().trim();
-        let flagsss = split.next().unwrap().trim();
-        let description = split.next().unwrap().trim();
+        let colon_count = line.matches(':').count();
 
-        let flagss: Vec<&str> = flagsss.split(",").collect();
-        let mut flags: Vec<CvarFlag> = vec![];
-        for flag in flagss {
-            let flag = flag.trim().trim_matches('"');
-            match flag.trim() {
-                // Identity & Core
-                "sv" => flags.push(CvarFlag::Server),
-                "cl" => flags.push(CvarFlag::Client),
-                "release" => flags.push(CvarFlag::Release),
-
-                // Functional & Replicated
-                "a" => flags.push(CvarFlag::Archive),
-                "nf" => flags.push(CvarFlag::Notify),
-                "rep" => flags.push(CvarFlag::Replicated),
-                "cheat" => flags.push(CvarFlag::Cheat),
-                "demo" => flags.push(CvarFlag::Demo), // Matches dsp_ convars in your CSV
-
-                // Security & User
-                "prot" => flags.push(CvarFlag::Protected),
-                "user" => flags.push(CvarFlag::User),
-                "per_user" => flags.push(CvarFlag::PerUser),
-                "norecord" => flags.push(CvarFlag::NoRecord),
-
-                // Permissions
-                "server_can_execute" => flags.push(CvarFlag::ServerCanExecute),
-                "server_cant_query" => flags.push(CvarFlag::ServerCantQuery),
-                "clientcmd_can_execute" => flags.push(CvarFlag::ClientCanExecute),
-
-                // External Plugins
-                "linked" => flags.push(CvarFlag::Linked),
-                "sp" => flags.push(CvarFlag::Special),
-
-                // Developer Tooling / UI Junk
-                "menubar_item" => flags.push(CvarFlag::MenuBarItem),
-                "vconsole_fuzzy" => flags.push(CvarFlag::VConsoleFuzzy),
-                "vconsole_set_focus" => flags.push(CvarFlag::VConsoleSetFocus),
-                "developmentonly" => flags.push(CvarFlag::DevelopmentOnly),
-
-                // Rare / Internal
-                "hidden" => flags.push(CvarFlag::Hidden),
-                "defensive" => flags.push(CvarFlag::Defensive),
-
-                _ => (),
-            }
+        match colon_count {
+            1 => self.parse_goldsrc_line(line),
+            3 => self.parse_source_line(line),
+            _ => return,
         }
+    }
+
+    fn parse_source_line(&mut self, line: &str) {
+        let mut split = line.splitn(4, ':');
+        let name = split.next().unwrap_or_default().trim();
+        let value = split.next().unwrap_or_default().trim();
+        let flag_string = split.next().unwrap_or_default().trim();
+        let description = split.next().unwrap_or_default().trim();
+
+        let flags = self.parse_flags(flag_string);
 
         self.cvars.insert(
             name.to_string(),
@@ -129,9 +94,70 @@ impl CvarDatabase {
                 name: name.to_string(),
                 value: value.to_string(),
                 flags: flags,
-                description: description.to_string(),
+                description: Some(description.to_string()),
             },
         );
+    }
+
+    fn parse_goldsrc_line(&mut self, line: &str) {
+        let Some((name, value_and_flags)) = line.split_once(':') else {
+            return;
+        };
+
+        let name = name.trim();
+
+        if name.is_empty() {
+            return;
+        }
+
+        let (value, flag_string) = match value_and_flags.split_once(',') {
+            Some((value, flags)) => (value.trim(), flags.trim()),
+            None => (value_and_flags.trim(), ""),
+        };
+
+        let flags = self.parse_flags(flag_string);
+
+        self.cvars.insert(
+            name.to_string(),
+            Cvar {
+                name: name.to_string(),
+                value: value.to_string(),
+                flags,
+                description: None,
+            },
+        );
+    }
+
+    fn parse_flags(&self, flag_string: &str) -> Vec<CvarFlag> {
+        flag_string
+            .split(',')
+            .filter_map(|flag| match flag.trim() {
+                "sv" => Some(CvarFlag::Server),
+                "cl" => Some(CvarFlag::Client),
+                "release" => Some(CvarFlag::Release),
+                "a" => Some(CvarFlag::Archive),
+                "nf" => Some(CvarFlag::Notify),
+                "rep" => Some(CvarFlag::Replicated),
+                "cheat" => Some(CvarFlag::Cheat),
+                "demo" => Some(CvarFlag::Demo),
+                "prot" => Some(CvarFlag::Protected),
+                "user" => Some(CvarFlag::User),
+                "per_user" => Some(CvarFlag::PerUser),
+                "norecord" => Some(CvarFlag::NoRecord),
+                "server_can_execute" => Some(CvarFlag::ServerCanExecute),
+                "server_cant_query" => Some(CvarFlag::ServerCantQuery),
+                "clientcmd_can_execute" => Some(CvarFlag::ClientCanExecute),
+                "linked" => Some(CvarFlag::Linked),
+                "sp" => Some(CvarFlag::Special),
+                "menubar_item" => Some(CvarFlag::MenuBarItem),
+                "vconsole_fuzzy" => Some(CvarFlag::VConsoleFuzzy),
+                "vconsole_set_focus" => Some(CvarFlag::VConsoleSetFocus),
+                "developmentonly" => Some(CvarFlag::DevelopmentOnly),
+                "hidden" => Some(CvarFlag::Hidden),
+                "defensive" => Some(CvarFlag::Defensive),
+                _ => None,
+            })
+            .collect()
     }
 
     pub fn update(&mut self, key: &str, val: &str) {

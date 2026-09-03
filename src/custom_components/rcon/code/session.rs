@@ -1,6 +1,6 @@
 use std::{net::SocketAddr, sync::Arc};
 
-use cbz_rcon::{RconClient, RconStatus};
+use cbz_rcon::{RconClient, RconProtocol, RconStatus};
 use dioxus::{core::Task, prelude::*};
 use live_log::{
     http_catcher::LiveLog,
@@ -13,6 +13,8 @@ use crate::{
         cvar::CvarDatabase,
     },
     network::log_receiver_ip,
+    scanner::ServerProtocol,
+    state::AppState,
 };
 
 #[derive(Debug, Clone)]
@@ -56,7 +58,27 @@ pub struct RconSession {
 
 impl RconSession {
     pub async fn new(addr: SocketAddr, password: String) -> Self {
-        let client = Arc::new(tokio::sync::Mutex::new(RconClient::new(addr, password)));
+        let app_state = consume_context::<AppState>();
+
+        let server = app_state
+            .servers
+            .read()
+            .get(&addr)
+            .cloned()
+            .expect("Server not found");
+
+        let rcon_protocol = match server.scanned.protocol {
+            ServerProtocol::Source | ServerProtocol::Source2 => RconProtocol::Source,
+            ServerProtocol::GoldSrc => RconProtocol::GoldSrc,
+            ServerProtocol::Quake3 => RconProtocol::Quake3,
+            _ => panic!("Unsupported RCON protocol"),
+        };
+
+        let client = Arc::new(tokio::sync::Mutex::new(RconClient::new(
+            addr,
+            password,
+            rcon_protocol,
+        )));
 
         let live_log = LiveLog::new().await.expect("Error creating LiveLog");
 
@@ -500,7 +522,7 @@ impl RconSession {
 
             group(a).cmp(&group(b)).then_with(|| a.cmp(b))
         });
-
+        maps.dedup();
         maps
     }
 

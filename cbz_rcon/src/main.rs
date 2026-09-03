@@ -41,7 +41,7 @@ async fn main() {
             }
         };
 
-        let mut client = RconClient::new(addr, password.clone());
+        let mut client = RconClient::new(addr, password.clone(), cbz_rcon::RconProtocol::Source);
 
         match client.connect().await {
             Ok(()) => {
