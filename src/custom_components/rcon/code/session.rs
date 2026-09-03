@@ -35,7 +35,7 @@ pub struct RconSession {
     // -------------------------------------------------------------------------
     // Live log processing for this server
     // -------------------------------------------------------------------------
-    pub live_log: LiveLog,
+    pub live_log: Option<LiveLog>,
     pub log_url: Option<String>,
 
     // -------------------------------------------------------------------------
@@ -80,12 +80,12 @@ impl RconSession {
             rcon_protocol,
         )));
 
-        let live_log = LiveLog::new().await.expect("Error creating LiveLog");
+        //let live_log = LiveLog::new().await.expect("Error creating LiveLog");
 
         Self {
             addr,
             client,
-            live_log,
+            live_log: None,
 
             logs: Signal::new(Vec::new()),
             status: Signal::new(RconStatus::Disconnected),
@@ -140,7 +140,19 @@ impl RconSession {
     // =========================================================================
 
     async fn start_live_log(&mut self) -> bool {
-        let port = self.live_log.port();
+        let live_log = match LiveLog::new().await {
+            Ok(log) => log,
+            Err(err) => {
+                self.push_log(RconLogEvent::Info(format!(
+                    "[LIVE_LOG] Failed to bind live log listener: {}",
+                    err
+                )));
+                return false;
+            }
+        };
+
+        let port = live_log.port();
+        self.live_log = Some(live_log);
 
         self.push_log(RconLogEvent::Info(format!(
             "[LIVE_LOG] Listening on port {}.",
@@ -149,19 +161,16 @@ impl RconSession {
 
         let receiver_ip = match log_receiver_ip(self.addr) {
             Some(ip) => ip,
-
             None => {
                 self.push_log(RconLogEvent::Info(format!(
                     "[LIVE_LOG] Could not determine a local IP for server {}.",
                     self.addr
                 )));
-
                 return false;
             }
         };
 
         let log_url = format!("http://{}:{}", receiver_ip, port);
-
         self.push_log(RconLogEvent::Info(format!(
             "[LIVE_LOG] Receiver URL: {}",
             log_url
@@ -188,18 +197,7 @@ impl RconSession {
         {
             return false;
         }
-        /*
-        if !self
-            .send_rcon_command(
-                "logaddress_delall_http",
-                "[LIVE_LOG] Cleared old HTTP log addresses: ",
-                "[LIVE_LOG] Failed to clear old HTTP log addresses: ",
-            )
-            .await
-        {
-            return false;
-        }
-        */
+
         let command = format!("logaddress_add_http \"{}\"", log_url);
         self.log_url = Some(log_url.clone());
 
@@ -439,56 +437,66 @@ impl RconSession {
 
         session.push_log(RconLogEvent::Info("[RCON] Authenticated.".to_string()));
 
-        if !session.start_live_log().await {
-            session.push_log(RconLogEvent::Info(
-                "[RCON] Failed to configure live log.".to_string(),
-            ));
+        let app_state = consume_context::<AppState>();
+        let server = app_state.servers.read().get(&addr).cloned()?;
+        let is_cs2 = matches!(server.scanned.protocol, ServerProtocol::Source2);
 
-            return None;
+        if is_cs2 {
+            if !session.start_live_log().await {
+                session.push_log(RconLogEvent::Info(
+                    "[RCON] Failed to configure live log.".to_string(),
+                ));
+                return None;
+            }
+
+            let cvarlist = session
+                .client
+                .lock()
+                .await
+                .command("cvarlist")
+                .await
+                .expect("Failed to get cvarlist via rcon");
+            let db = CvarDatabase::new(&cvarlist);
+            session.cvar_db = Signal::new(Some(db));
+
+            if let Some(mut live_log) = session.live_log.as_mut() {
+                let receiver = live_log.take_receiver();
+                let logs = session.logs;
+                let players = session.players;
+                let match_paused = session.match_paused;
+                let score = session.score;
+                let team_name_ct = session.team_name_ct;
+                let team_name_t = session.team_name_t;
+                let max_rounds = session.max_rounds;
+                let need_attention = session.need_attention;
+                let client = session.client.clone();
+                let cvar_db = session.cvar_db;
+
+                let live_log_task = spawn(async move {
+                    Self::process_live_log(
+                        receiver,
+                        client,
+                        logs,
+                        players,
+                        match_paused,
+                        score,
+                        team_name_ct,
+                        team_name_t,
+                        max_rounds,
+                        need_attention,
+                        cvar_db,
+                    )
+                    .await;
+                });
+                session.live_log_task = Some(live_log_task);
+            }
+        } else {
+            session.push_log(RconLogEvent::Info(
+                "[LIVE_LOG] Skipped live log setup for non-CS2 server.".to_string(),
+            ));
         }
 
-        let cvarlist = session
-            .client
-            .lock()
-            .await
-            .command("cvarlist")
-            .await
-            .expect("Failed to get cvarlist via rcon");
-        let db = CvarDatabase::new(&cvarlist);
-        session.cvar_db = Signal::new(Some(db));
-
-        let receiver = session.live_log.take_receiver();
-        let logs = session.logs;
-        let players = session.players;
-        let match_paused = session.match_paused;
-        let score = session.score;
-        let team_name_ct = session.team_name_ct;
-        let team_name_t = session.team_name_t;
-        let max_rounds = session.max_rounds;
-        let need_attention = session.need_attention;
-        let client = session.client.clone();
-        let cvar_db = session.cvar_db;
-
-        let live_log_task = spawn(async move {
-            Self::process_live_log(
-                receiver,
-                client,
-                logs,
-                players,
-                match_paused,
-                score,
-                team_name_ct,
-                team_name_t,
-                max_rounds,
-                need_attention,
-                cvar_db,
-            )
-            .await;
-        });
-        session.live_log_task = Some(live_log_task);
-
         session.push_log(RconLogEvent::Info("[RCON] Session created.".to_string()));
-
         session.status.set(RconStatus::Authenticated);
 
         Some(session)
