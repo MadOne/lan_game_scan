@@ -41,7 +41,7 @@ pub fn parse(
     ping_ms: Option<u16>,
     split_cache: &mut HashMap<(SocketAddr, u32), SplitBuffer>,
 ) -> ParseResult {
-    println!("Parsing data: {:?} from addr: {:?}", data, addr);
+    //println!("Parsing data: {:?} from addr: {:?}", data, addr);
 
     // 0. Handle Source/GoldSrc Multi-packet splits (0xFEFFFFFF / -2)
     let payload = if data.len() > 12 && data.starts_with(b"\xFE\xFF\xFF\xFF") {
@@ -57,9 +57,9 @@ pub fn parse(
 
     // 1. Quake3 / CoD status response
     if len >= 18 && payload.starts_with(b"\xFF\xFF\xFF\xFFstatusResponse") {
-        println!("Q3 Query catched");
+        //println!("Q3 Query catched");
         if let Some(update) = parse_quake3(&payload[20..], addr, ping_ms) {
-            println!("Successfully parsed Q3 Server: {:?}", update);
+            //println!("Successfully parsed Q3 Server: {:?}", update);
             return ParseResult::Update(update);
         }
         return ParseResult::Ignored;
@@ -394,8 +394,6 @@ fn parse_gamespy(payload: &[u8], addr: SocketAddr, ping: Option<u16>) -> Option<
         }
         i += 2;
     }
-
-    println!("[GAMESPY MAP] Extracted: {:?}", map);
 
     Some(ScannedServer {
         socket_addr: addr,

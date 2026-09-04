@@ -160,7 +160,7 @@ impl Scanner {
             }
         }
     }
-    async fn handle_auto_scan(&self) {
+    async fn handle_auto_scan(&mut self) {
         // 1. Broadcast to LAN query ports if enabled
         if self.broadcast {
             const BROADCAST_PORTS: &[u16] = &[27015, 27016, 27017, 27018, 27019, 27020];
@@ -168,6 +168,8 @@ impl Scanner {
 
             for &port in BROADCAST_PORTS {
                 if let Ok(addr) = format!("255.255.255.255:{}", port).parse::<SocketAddr>() {
+                    let now = std::time::Instant::now();
+                    self.ping_tracker.insert(addr, now);
                     let _ = self.socket.send_to(payload, addr).await;
                 }
             }
@@ -180,6 +182,8 @@ impl Scanner {
 
             for &port in QUAKE_PORTS {
                 if let Ok(addr) = format!("255.255.255.255:{}", port).parse::<SocketAddr>() {
+                    let now = std::time::Instant::now();
+                    self.ping_tracker.insert(addr, now);
                     let _ = self.socket.send_to(quake_payload, addr).await;
                 }
             }
@@ -189,6 +193,8 @@ impl Scanner {
 
             for &port in GAMESPY_PORTS {
                 if let Ok(addr) = format!("255.255.255.255:{}", port).parse::<SocketAddr>() {
+                    let now = std::time::Instant::now();
+                    self.ping_tracker.insert(addr, now);
                     let _ = self.socket.send_to(gamespy_payload, addr).await;
                 }
             }
@@ -262,7 +268,7 @@ impl Scanner {
             ParseResult::Update(update) => {
                 self.pending_queries.remove(&addr);
                 match self.ui_tx.send(update).await {
-                    Ok(_) => println!("[UI_TX SUCCESS] Dispatched server update for {}", addr),
+                    Ok(_) => (), //println!("[UI_TX SUCCESS] Dispatched server update for {}", addr),
                     Err(e) => {
                         eprintln!("[UI_TX ERROR] Failed to send update for {}: {:?}", addr, e)
                     }

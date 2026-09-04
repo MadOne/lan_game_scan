@@ -197,7 +197,7 @@ pub fn App() -> Element {
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap()
                 .as_secs() as i64;
-            println!("ui received update: {:?}", update);
+            //println!("ui received update: {:?}", update);
             state.servers.with_mut(|map| match update {
                 ServerUpdate::FullServer(mut incoming) => {
                     let addr = incoming.socket_addr;
