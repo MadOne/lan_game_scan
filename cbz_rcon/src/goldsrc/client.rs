@@ -13,7 +13,6 @@ pub struct GoldSrcRconClient {
     addr: SocketAddr,
     password: String,
     socket: Option<UdpSocket>,
-    challenge: Option<String>,
     authenticated: bool,
 }
 
@@ -24,7 +23,6 @@ impl GoldSrcRconClient {
             addr,
             password: password.into(),
             socket: None,
-            challenge: None,
             authenticated: false,
         }
     }

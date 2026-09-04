@@ -1,19 +1,8 @@
-//parser.rs
-
-use core::net::SocketAddr;
-
 use serde::{Deserialize, Serialize};
-use std::net::{IpAddr, Ipv4Addr};
-use std::sync::Mutex as SyncMutex;
-use std::time::{Instant, SystemTime};
-use std::{collections::BTreeMap, sync::Arc};
-use tokio::sync::{mpsc::*, Mutex};
+use std::collections::{BTreeMap, HashMap};
+use std::net::SocketAddr;
 
-use tokio::sync::mpsc;
-
-use std::collections::{HashMap, VecDeque};
-
-use crate::helper::pop_bytes;
+use crate::scanner::{PlayerInfo, ServerUpdate};
 use crate::server::ScannedServer;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -26,272 +15,446 @@ pub enum ServerProtocol {
     Unknown,
 }
 
-pub struct Parser {
-    udp_listener_receiver: Arc<Mutex<Receiver<(Vec<u8>, SocketAddr)>>>,
-    sender_parsed: Arc<Sender<ScannedServer>>,
-    udp_sender_sender: Arc<Sender<(Vec<u8>, SocketAddr)>>,
-    pub receiver_parsed: Arc<Mutex<Receiver<ScannedServer>>>,
-    ping: Arc<SyncMutex<HashMap<SocketAddr, Instant>>>,
+#[derive(Debug)]
+pub enum ParseResult {
+    /// Server payload parsed successfully
+    Update(ServerUpdate),
+    /// Challenge token received from server (4 bytes)
+    Challenge([u8; 4]),
+    /// Waiting for remaining split fragments to complete reassembly
+    PartialSplit,
+    /// Unrecognized packet format or corrupted data
+    Ignored,
 }
 
-impl Parser {
-    pub fn new(
-        udp_listener_receiver: Receiver<(Vec<u8>, SocketAddr)>,
-        sender_udp: Sender<(Vec<u8>, SocketAddr)>,
-        ping: Arc<SyncMutex<HashMap<SocketAddr, Instant>>>,
-    ) -> Parser {
-        let (parser_sender, parser_receiver) = mpsc::channel::<ScannedServer>(1_000);
-        Parser {
-            udp_listener_receiver: Arc::new(Mutex::new(udp_listener_receiver)),
-            sender_parsed: Arc::new(parser_sender),
-            udp_sender_sender: Arc::new(sender_udp),
-            receiver_parsed: Arc::new(Mutex::new(parser_receiver)),
-            ping: ping,
+/// Buffer for reassembling multi-packet UDP responses
+#[derive(Default, Debug)]
+pub struct SplitBuffer {
+    pub total: u8,
+    pub packets: BTreeMap<u8, Vec<u8>>,
+}
+
+/// Main entry point called directly by scanner.rs upon receiving a UDP packet.
+pub fn parse(
+    data: &mut [u8],
+    addr: SocketAddr,
+    ping_ms: Option<u16>,
+    split_cache: &mut HashMap<(SocketAddr, u32), SplitBuffer>,
+) -> ParseResult {
+    println!("Parsing data: {:?} from addr: {:?}", data, addr);
+
+    // 0. Handle Source/GoldSrc Multi-packet splits (0xFEFFFFFF / -2)
+    let payload = if data.len() > 12 && data.starts_with(b"\xFE\xFF\xFF\xFF") {
+        match handle_split_packet(data, addr, split_cache) {
+            Some(reassembled) => reassembled,
+            None => return ParseResult::PartialSplit,
         }
+    } else {
+        data.to_vec()
+    };
+
+    let len = payload.len();
+
+    // 1. Quake3 / CoD status response
+    if len >= 18 && payload.starts_with(b"\xFF\xFF\xFF\xFFstatusResponse") {
+        println!("Q3 Query catched");
+        if let Some(update) = parse_quake3(&payload[20..], addr, ping_ms) {
+            println!("Successfully parsed Q3 Server: {:?}", update);
+            return ParseResult::Update(update);
+        }
+        return ParseResult::Ignored;
     }
 
-    pub async fn start(&mut self) {
-        let a = self.udp_listener_receiver.clone();
-        let b = self.sender_parsed.clone();
-        let c = self.udp_sender_sender.clone();
-        let d = self.ping.clone();
+    // 2. Source / GoldSrc challenge response ('A' / 0x41)
+    if len >= 9 && payload.starts_with(b"\xFF\xFF\xFF\xFF\x41") {
+        if let Ok(challenge_bytes) = payload[5..9].try_into() {
+            return ParseResult::Challenge(challenge_bytes);
+        }
+        return ParseResult::Ignored;
+    }
 
-        tokio::spawn(async move {
-            Parser::parse_response(a, b, c, d).await;
+    // 3. Source A2S_INFO response ('I' / 0x49)
+    if len > 5 && payload.starts_with(b"\xFF\xFF\xFF\xFF\x49") {
+        if let Some(server) = parse_a2s_info(&payload[5..], addr, ping_ms) {
+            return ParseResult::Update(ServerUpdate::FullServer(server));
+        }
+        return ParseResult::Ignored;
+    }
+
+    // 4. GoldSrc Legacy INFO response ('m' / 0x6D)
+    if len > 5 && payload.starts_with(b"\xFF\xFF\xFF\xFF\x6D") {
+        if let Some(server) = parse_goldsrc_info(&payload[5..], addr, ping_ms) {
+            return ParseResult::Update(ServerUpdate::FullServer(server));
+        }
+        return ParseResult::Ignored;
+    }
+
+    // 5. Source A2S_PLAYER response ('D' / 0x44)
+    if len > 5 && payload.starts_with(b"\xFF\xFF\xFF\xFF\x44") {
+        if let Some(players) = parse_a2s_player(&payload[5..]) {
+            return ParseResult::Update(ServerUpdate::PlayerList { addr, players });
+        }
+        return ParseResult::Ignored;
+    }
+
+    // 6. GameSpy protocol (1, 2 & 3)
+    if len > 4
+        && (payload.starts_with(b"\\gamename")
+            || payload.starts_with(b"\\hostname")
+            || payload[0] == 0x00)
+    {
+        let gs_payload = if payload.starts_with(b"\\") {
+            &payload[1..]
+        } else {
+            &payload[4..]
+        };
+        if let Some(server) = parse_gamespy(gs_payload, addr, ping_ms) {
+            return ParseResult::Update(ServerUpdate::FullServer(server));
+        }
+        return ParseResult::Ignored;
+    }
+
+    ParseResult::Ignored
+}
+
+// --- PRIVATE PROTOCOL PARSERS ---
+
+fn handle_split_packet(
+    payload: &[u8],
+    addr: SocketAddr,
+    split_cache: &mut HashMap<(SocketAddr, u32), SplitBuffer>,
+) -> Option<Vec<u8>> {
+    if payload.len() < 12 {
+        return None;
+    }
+
+    let request_id = u32::from_le_bytes(payload[4..8].try_into().ok()?);
+    let total = payload[8];
+    let number = payload[9];
+
+    let entry = split_cache.entry((addr, request_id)).or_default();
+    entry.total = total;
+    entry.packets.insert(number, payload[12..].to_vec());
+
+    if entry.packets.len() == total as usize {
+        let mut full_payload = vec![0xFF, 0xFF, 0xFF, 0xFF]; // Standard uncompressed header
+        for (_, pkt_data) in entry.packets.iter() {
+            full_payload.extend_from_slice(pkt_data);
+        }
+        split_cache.remove(&(addr, request_id));
+        Some(full_payload)
+    } else {
+        None
+    }
+}
+
+fn parse_a2s_info(
+    mut payload: &[u8],
+    addr: SocketAddr,
+    ping: Option<u16>,
+) -> Option<ScannedServer> {
+    if payload.is_empty() {
+        return None;
+    }
+    let _protocol = payload[0];
+    payload = &payload[1..];
+
+    let name = read_cstring(&mut payload)?;
+    let map = read_cstring(&mut payload)?;
+    let _folder = read_cstring(&mut payload)?;
+    let game = read_cstring(&mut payload)?;
+
+    if payload.len() < 2 {
+        return None;
+    }
+    let server_id = u16::from_le_bytes([payload[0], payload[1]]);
+    payload = &payload[2..];
+
+    if payload.len() < 3 {
+        return None;
+    }
+    let players = payload[0];
+    let max_players = payload[1];
+    let bots = payload[2];
+    payload = &payload[3..];
+
+    // Skip environment + server_type
+    if payload.len() < 2 {
+        return None;
+    }
+    payload = &payload[2..];
+
+    let visibility = if !payload.is_empty() { payload[0] } else { 0 };
+
+    let game_name = match server_id {
+        10 => "CS".to_string(),
+        20 => "TFC".to_string(),
+        30 => "DoD".to_string(),
+        240 => "CSS".to_string(),
+        300 => "DoD:S".to_string(),
+        440 => "TF2".to_string(),
+        730 => "CS2".to_string(),
+        _ => game,
+    };
+
+    let protocol = match server_id {
+        730 => ServerProtocol::Source2,
+        id if id < 200 => ServerProtocol::GoldSrc,
+        _ => ServerProtocol::Source,
+    };
+
+    Some(ScannedServer {
+        socket_addr: addr,
+        hostname: Some(name),
+        game: Some(game_name),
+        map: Some(map),
+        players: Some(players),
+        players_max: Some(max_players),
+        players_list: vec![],
+        query_port: Some(addr.port()),
+        ping,
+        bots: Some(bots),
+        has_password: visibility == 1,
+        password: None,
+        protocol,
+    })
+}
+
+fn parse_goldsrc_info(
+    mut payload: &[u8],
+    addr: SocketAddr,
+    ping: Option<u16>,
+) -> Option<ScannedServer> {
+    let _ip_addr = read_cstring(&mut payload)?;
+    let name = read_cstring(&mut payload)?;
+    let map = read_cstring(&mut payload)?;
+    let _folder = read_cstring(&mut payload)?;
+    let game = read_cstring(&mut payload)?;
+
+    if payload.len() < 2 {
+        return None;
+    }
+    let players = payload[0];
+    let max_players = payload[1];
+
+    Some(ScannedServer {
+        socket_addr: addr,
+        hostname: Some(name),
+        game: Some(game),
+        map: Some(map),
+        players: Some(players),
+        players_max: Some(max_players),
+        players_list: vec![],
+        query_port: Some(addr.port()),
+        ping,
+        bots: None,
+        has_password: false,
+        password: None,
+        protocol: ServerProtocol::GoldSrc,
+    })
+}
+
+fn parse_a2s_player(mut payload: &[u8]) -> Option<Vec<PlayerInfo>> {
+    if payload.is_empty() {
+        return None;
+    }
+
+    let player_count = payload[0] as usize;
+    payload = &payload[1..];
+
+    let mut players = Vec::with_capacity(player_count);
+
+    for _ in 0..player_count {
+        if payload.is_empty() {
+            break;
+        }
+
+        let index = payload[0];
+        payload = &payload[1..];
+
+        let name = read_cstring(&mut payload)?;
+
+        if payload.len() < 8 {
+            break;
+        }
+        let score = i32::from_le_bytes(payload[..4].try_into().ok()?);
+        let duration_secs = f32::from_le_bytes(payload[4..8].try_into().ok()?);
+        payload = &payload[8..];
+
+        players.push(PlayerInfo {
+            name,
+            score,
+            ping: None,
+            duration_secs: Some(duration_secs),
+            index: Some(index),
+            team: None,
+            skin: None,
+            is_bot: false,
         });
     }
 
-    pub async fn parse_response(
-        listener_receiver: Arc<Mutex<Receiver<(Vec<u8>, SocketAddr)>>>,
-        sender_processed: Arc<Sender<ScannedServer>>,
-        sender_udp: Arc<Sender<(Vec<u8>, SocketAddr)>>,
-        ping: Arc<SyncMutex<HashMap<SocketAddr, Instant>>>,
-    ) {
-        while let Some((response, addr)) = listener_receiver.lock().await.recv().await {
-            let now = SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_secs();
-            let response_length = response.len();
+    Some(players)
+}
 
-            // Quake protocol response
-            if response_length >= 18 {
-                if response[0..18] == *b"\xFF\xFF\xFF\xFFstatusResponse" {
-                    let resp = String::from_utf8(response[20..response_length].to_vec()).unwrap();
-                    let resp_split_newline: Vec<&str> = resp.split("\n").collect();
-                    let players = resp_split_newline.len() - 2;
-                    let info = resp_split_newline[0];
-                    let d: Vec<&str> = info.split("\\").collect();
-                    //println!("{:?}", &info);
-                    //println!("players: {players}");
-                    let mut newmap: BTreeMap<&str, &str> = BTreeMap::new();
-                    let mut i = 0;
-                    while i < d.len() {
-                        newmap.insert(d[i], d[i + 1]);
-                        i += 2;
-                    }
-                    if false {
-                        println!("{}: {:?}", addr, newmap);
-                    }
-                    let resp = ScannedServer {
-                        socket_addr: addr,
-                        hostname: Some(newmap.get("sv_hostname").unwrap().to_string()),
-                        game: Some(newmap.get("gamename").unwrap().to_string()),
-                        map: Some(newmap.get("mapname").unwrap().to_string()),
-                        players: Some(players as u8),
-                        players_max: Some(newmap.get("sv_maxclients").unwrap().parse().unwrap()),
-                        query_port: Some(addr.port()),
-                        ping: Parser::calc_ping(&ping, addr),
-                        bots: None,
-                        has_password: false,
-                        password: None,
-                        protocol: ServerProtocol::Quake3,
-                    };
-                    let _ = sender_processed.send(resp).await;
-                }
-            }
-            // Source challenge. Send back request with token
-            if response_length == 9 {
-                if response[0..5] == *b"\xFF\xFF\xFF\xFF\x41" {
-                    let challenge = &response[5..];
-                    let source_query: &[u8; 25] = b"\xFF\xFF\xFF\xFFTSource Engine Query\x00";
-                    let myresp = [source_query.to_vec(), challenge.to_vec()].concat();
-                    let _res = sender_udp.send((myresp, addr)).await;
-                    ping.lock().unwrap().insert(addr, Instant::now());
-                }
-            }
+fn parse_quake3(payload: &[u8], addr: SocketAddr, ping: Option<u16>) -> Option<ServerUpdate> {
+    let resp = String::from_utf8_lossy(payload);
+    let lines: Vec<&str> = resp.split('\n').collect();
+    if lines.is_empty() {
+        return None;
+    }
 
-            // Proper Source response
-            if response_length > 5 {
-                if response[0..5] == *b"\xFF\xFF\xFF\xFF\x49" {
-                    //println!("Source response");
+    let info = lines[0];
+    let d: Vec<&str> = info.split('\\').collect();
 
-                    let resp_vec = response[5..].to_vec();
-                    let mut payload: VecDeque<u8> = VecDeque::from(resp_vec.clone());
-                    let val = pop_bytes(&mut payload, 1);
-                    let server_protocol = val[0];
-                    let val = pop_bytes(&mut payload, 0);
-                    let server_name = String::from_utf8(val).unwrap();
-                    let val = pop_bytes(&mut payload, 0);
-                    let server_map = String::from_utf8(val).unwrap();
-                    let val = pop_bytes(&mut payload, 0);
-                    let server_folder = String::from_utf8(val).unwrap();
-                    let val = pop_bytes(&mut payload, 0);
-                    let server_game = String::from_utf8(val).unwrap();
-                    let val = pop_bytes(&mut payload, 2);
-                    let server_id = u16::from_ne_bytes([val[0], val[1]]);
-                    let val = pop_bytes(&mut payload, 1);
-                    let server_players = val[0];
-                    let val = pop_bytes(&mut payload, 1);
-                    let server_players_max = val[0];
-                    let val = pop_bytes(&mut payload, 1);
-                    let server_bots = val[0];
-                    let val = pop_bytes(&mut payload, 1);
-                    let server_type = val[0];
-                    let val = pop_bytes(&mut payload, 1);
-                    let server_environment = val[0];
-                    let val = pop_bytes(&mut payload, 1);
-                    let server_visibility = val[0];
-                    let val = pop_bytes(&mut payload, 1);
-                    let server_vac = val[0];
-                    let val = pop_bytes(&mut payload, 0);
-                    let server_version = String::from_utf8(val).unwrap();
+    let mut newmap: BTreeMap<&str, &str> = BTreeMap::new();
+    let mut i = 0;
+    while i + 1 < d.len() {
+        newmap.insert(d[i], d[i + 1]);
+        i += 2;
+    }
 
-                    // do not print
-                    if false {
-                        println!(
-                            "
-                            protocol: {server_protocol},
-                            {server_name}, 
-                            {server_map},
-                            {server_folder},
-                            {server_game},
-                            {server_id},
-                            players: {server_players},
-                            max_players: {server_players_max},
-                            bots: {server_bots},
-                            type: {server_type},
-                            environment: {server_environment},
-                            visibility: {server_visibility},
-                            vac: {server_vac},
-                            version: {server_version}
-                            "
-                        );
-                    }
-                    let has_password = match server_visibility {
-                        0 => false,
-                        1 => true,
-                        _ => false,
-                    };
-
-                    /*println!(
-                        "{} visibility={} password={}",
-                        addr, server_visibility, has_password
-                    );*/
-
-                    let game_name = match server_id {
-                        10 => "CS".to_string(),
-                        20 => "TFC".to_string(),
-                        30 => "DoD".to_string(),
-                        240 => "CSS".to_string(),
-                        300 => "DoD:S".to_string(),
-                        440 => "TF2".to_string(),
-                        730 => "CS2".to_string(),
-                        _ => server_game.clone(),
-                    };
-
-                    let protocol = match server_id {
-                        730 => ServerProtocol::Source2,
-                        id if id < 200 => ServerProtocol::GoldSrc,
-                        _ => ServerProtocol::Source,
-                    };
-
-                    let resp = ScannedServer {
-                        socket_addr: addr,
-                        hostname: Some(server_name),
-                        game: Some(game_name),
-                        map: Some(server_map),
-                        players: Some(server_players),
-                        players_max: Some(server_players_max),
-                        query_port: Some(addr.port()),
-                        ping: Parser::calc_ping(&ping, addr),
-                        bots: Some(server_bots),
-                        has_password: has_password,
-                        password: None,
-                        protocol,
-                    };
-                    let _ = sender_processed.send(resp).await;
-                }
-            }
-            // Obsolete GoldSource Response
-            if response.len() > 5 {
-                if response[0..5] == *b"\xFF\xFF\xFF\xFF\x6D" {
-                    println!("GoldSource response");
-                }
-            }
-
-            //gamespy
-            if response.len() > 9 {
-                //if response[0..9] == *b"\x5C\x68\x6F\x73\x74\x6E\x61\x6D\x65" { // \hostname
-                if response[0..9] == *b"\x5C\x67\x61\x6D\x65\x6E\x61\x6D\x65"
-                    || response[0..9] == *b"\x5C\x68\x6F\x73\x74\x6E\x61\x6D\x65"
-                {
-                    let b = String::from_utf8(response[1..response_length].to_vec()).unwrap();
-                    let d: Vec<&str> = b.split("\\").collect();
-                    //println!("{:?}", &b);
-                    let mut newmap: BTreeMap<&str, &str> = BTreeMap::new();
-                    let mut i = 0;
-                    while i < d.len() {
-                        newmap.insert(d[i], d[i + 1]);
-                        i += 2;
-                    }
-                    if false {
-                        println!("{}: {:?}", addr, newmap);
-                    }
-                    let resp = ScannedServer {
-                        socket_addr: addr,
-                        hostname: Some(newmap.get("hostname").unwrap().to_string()),
-                        game: Some(newmap.get("gamename").unwrap_or(&"").to_string()),
-                        map: Some(newmap.get("mapname").unwrap().to_string()),
-                        players: Some(newmap.get("numplayers").unwrap().parse().unwrap()),
-                        players_max: Some(newmap.get("maxplayers").unwrap().parse().unwrap()),
-                        query_port: Some(addr.port()),
-                        ping: Parser::calc_ping(&ping, addr),
-                        bots: None,
-                        has_password: false,
-                        password: None,
-                        protocol: ServerProtocol::GameSpy,
-                    };
-
-                    let _ = sender_processed.send(resp).await;
-                }
-            }
-
-            //sender_processed.send(resp);
+    let mut players_list = Vec::new();
+    for line in lines[1..]
+        .iter()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty())
+    {
+        if let Some(player) = parse_quake3_player_line(line) {
+            players_list.push(player);
         }
     }
 
-    fn calc_ping(
-        ping: &Arc<SyncMutex<HashMap<SocketAddr, Instant>>>,
-        addr: SocketAddr,
-    ) -> Option<u16> {
-        let now = Instant::now();
-        let mut ping_hashmap = ping.lock().unwrap();
+    let players_count = players_list.len() as u8;
 
-        // 1. Check for a direct entry (Handshake/Challenge response)
-        // We REMOVE it so we don't use a stale timestamp next time
-        if let Some(start_time) = ping_hashmap.remove(&addr) {
-            return Some(now.duration_since(start_time).as_millis().max(1) as u16);
+    Some(ServerUpdate::FullServer(ScannedServer {
+        socket_addr: addr,
+        hostname: newmap.get("sv_hostname").map(|s| s.to_string()),
+        game: newmap.get("gamename").map(|s| s.to_string()),
+        map: newmap.get("mapname").map(|s| s.to_string()),
+        players: Some(players_count),
+        players_max: newmap.get("sv_maxclients").and_then(|s| s.parse().ok()),
+        players_list,
+        query_port: Some(addr.port()),
+        ping,
+        bots: None,
+        has_password: newmap.get("g_needpass").map_or(false, |v| *v == "1"),
+        password: None,
+        protocol: ServerProtocol::Quake3,
+    }))
+}
+
+fn parse_quake3_player_line(line: &str) -> Option<PlayerInfo> {
+    let mut parts = line.splitn(3, ' ');
+
+    let score = parts.next()?.parse::<i32>().ok()?;
+    let ping_val = parts.next()?.parse::<u16>().ok()?;
+    let raw_name = parts.next()?.trim();
+
+    let name = raw_name
+        .strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .unwrap_or(raw_name)
+        .to_string();
+
+    let is_bot = ping_val == 0 || ping_val == 999;
+
+    Some(PlayerInfo {
+        name,
+        score,
+        ping: Some(ping_val),
+        duration_secs: None,
+        index: None,
+        team: None,
+        skin: None,
+        is_bot,
+    })
+}
+
+fn parse_gamespy(payload: &[u8], addr: SocketAddr, ping: Option<u16>) -> Option<ScannedServer> {
+    let text = String::from_utf8_lossy(payload);
+
+    // Split on backslash and discard empty trailing/leading tokens
+    let tokens: Vec<&str> = text
+        .split('\\')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    let mut map: BTreeMap<&str, &str> = BTreeMap::new();
+    let mut i = 0;
+
+    // Safely insert key-value pairs
+    while i + 1 < tokens.len() {
+        let key = tokens[i];
+        let val = tokens[i + 1];
+
+        // Ignore the GameSpy trailing delimiter "final"
+        if key != "final" {
+            map.insert(key, val);
         }
-
-        // 2. Check for the Broadcast entry
-        let bc_with_port =
-            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(255, 255, 255, 255)), addr.port());
-        if let Some(start_time) = ping_hashmap.get(&bc_with_port) {
-            return Some(now.duration_since(*start_time).as_millis().max(1) as u16);
-        }
-
-        // 3. If neither found, return None (This helps the LAN filter know it's not ready)
-        None
+        i += 2;
     }
+
+    println!("[GAMESPY MAP] Extracted: {:?}", map);
+
+    Some(ScannedServer {
+        socket_addr: addr,
+        hostname: map
+            .get("hostname")
+            .or_else(|| map.get("servername"))
+            .map(|s| s.to_string()),
+        game: map
+            .get("gamename")
+            .or_else(|| map.get("game"))
+            .map(|s| s.to_string()),
+        map: map
+            .get("mapname")
+            .or_else(|| map.get("map"))
+            .map(|s| s.to_string()),
+        players: map.get("numplayers").and_then(|s| s.parse().ok()),
+        players_max: map.get("maxplayers").and_then(|s| s.parse().ok()),
+        players_list: vec![],
+        query_port: Some(addr.port()),
+        ping,
+        bots: map.get("numbots").and_then(|s| s.parse().ok()),
+        has_password: map
+            .get("password")
+            .map_or(false, |&v| v == "1" || v == "true"),
+        password: None,
+        protocol: ServerProtocol::GameSpy,
+    })
+}
+
+fn read_cstring(cursor: &mut &[u8]) -> Option<String> {
+    let null_pos = cursor.iter().position(|&b| b == 0)?;
+    let s = String::from_utf8_lossy(&cursor[..null_pos]).into_owned();
+    *cursor = &cursor[null_pos + 1..];
+    Some(s)
+}
+
+use std::collections::VecDeque;
+
+/// Extracts `count` bytes from the front of a `VecDeque<u8>`.
+/// If `count` is 0, extracts until the first null byte (`0x00`) or end of deque.
+pub fn pop_bytes(payload: &mut VecDeque<u8>, count: usize) -> Vec<u8> {
+    let mut result = Vec::new();
+
+    if count > 0 {
+        for _ in 0..count {
+            if let Some(b) = payload.pop_front() {
+                result.push(b);
+            } else {
+                break;
+            }
+        }
+    } else {
+        while let Some(b) = payload.pop_front() {
+            if b == 0 {
+                break;
+            }
+            result.push(b);
+        }
+    }
+
+    result
 }

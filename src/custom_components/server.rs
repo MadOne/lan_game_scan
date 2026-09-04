@@ -1,6 +1,7 @@
 use crate::app::Route;
 use crate::misc::{connect_to_server, save_to_disk};
 
+use crate::scanner::{PendingQuery, ScanCommand};
 use crate::state::GameServer;
 use crate::{state::AppState, ScannedServer, TableMode};
 use cbz_rcon::RconStatus;
@@ -383,23 +384,30 @@ fn AddServerForm(on_close: EventHandler<()>) -> Element {
                             .unwrap()
                             .as_secs() as i64;
                         let scanned_server = ScannedServer {
-                                    socket_addr: addr,
-                                    hostname: Some("Custom Server".into()),
-                                    game: None,
-                                    map: None,
-                                    players: None,
-                                    players_max: None,
-                                    query_port: Some(addr.port()),
-                                    ping: None,
-                                    bots: None,
-                                    has_password: false,
-                                    password: None,
-                                    protocol: crate::scanner::ServerProtocol::Unknown
-                                };
+                            socket_addr: addr,
+                            hostname: Some("Custom Server".into()),
+                            game: None,
+                            map: None,
+                            players: None,
+                            players_max: None,
+                            players_list: vec![],
+                            query_port: Some(addr.port()),
+                            ping: None,
+                            bots: None,
+                            has_password: false,
+                            password: None,
+                            protocol: crate::scanner::ServerProtocol::Unknown,
+                        };
                         state.servers.with_mut(|m| {
                             m.insert(
                                 addr,
-                                GameServer { scanned: scanned_server, rcon_password: None, rcon_autologin: false, is_favorite: true, last_update: Some(now) }
+                                GameServer {
+                                    scanned: scanned_server,
+                                    rcon_password: None,
+                                    rcon_autologin: false,
+                                    is_favorite: true,
+                                    last_update: Some(now),
+                                },
                             );
 
                             save_to_disk(m);
@@ -407,7 +415,12 @@ fn AddServerForm(on_close: EventHandler<()>) -> Element {
 
                         if let Some(tx) = state.query_tx.read().clone() {
                             spawn(async move {
-                                let _ = tx.send(addr).await;
+                                let _ = tx
+                                    .send(ScanCommand::ScanServer {
+                                        addr,
+                                        query_type: PendingQuery::Info,
+                                    })
+                                    .await;
                             });
                         }
 

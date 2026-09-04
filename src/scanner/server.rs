@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 
-use crate::scanner::ServerProtocol;
+use crate::scanner::{PlayerInfo, ServerProtocol};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)] // Added Serialize/Deserialize
 pub struct ScannedServer {
@@ -13,6 +13,7 @@ pub struct ScannedServer {
     pub map: Option<String>,
     pub players: Option<u8>,
     pub players_max: Option<u8>,
+    pub players_list: Vec<PlayerInfo>,
     pub query_port: Option<u16>,
     #[serde(skip)] // Don't save live ping to disk
     pub ping: Option<u16>,

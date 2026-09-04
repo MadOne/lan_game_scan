@@ -459,7 +459,7 @@ impl RconSession {
             let db = CvarDatabase::new(&cvarlist);
             session.cvar_db = Signal::new(Some(db));
 
-            if let Some(mut live_log) = session.live_log.as_mut() {
+            if let Some(live_log) = session.live_log.as_mut() {
                 let receiver = live_log.take_receiver();
                 let logs = session.logs;
                 let players = session.players;

@@ -5,8 +5,8 @@ use crate::custom_components::server::LAN;
 use crate::custom_components::ui::RconTab;
 use crate::custom_components::Navbar;
 use crate::misc::load_from_disk;
-use crate::scanner::scanner::ScanCommand;
-use crate::scanner::{PendingQuery, Scanner, ServerUpdate};
+use crate::scanner::Scanner;
+use crate::scanner::ServerUpdate;
 use crate::state::AppState;
 use crate::state::GameServer;
 use dioxus::prelude::*;
@@ -17,11 +17,12 @@ use std::{
 };
 
 use std::sync::Arc;
-use tokio::sync::{mpsc, Notify};
+use tokio::sync::Notify;
 
 const FAVICON: Asset = asset!("/assets/favicon.ico");
 const MAIN_CSS: Asset = asset!("/assets/main.css");
 const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
+// app.rs
 
 #[derive(Debug, Clone, Routable, PartialEq)]
 #[rustfmt::skip]
@@ -152,6 +153,7 @@ pub fn App() -> Element {
         let connect_fn = connect_rcon;
 
         async move {
+            // 1. Sicheres Auslesen der Autologin-Daten ohne dauerhaften Read-Lock auf das Signal
             let autoconnect_targets: Vec<(SocketAddr, String)> = state.servers.with(|map| {
                 map.iter()
                     .filter(|(_, srv)| srv.rcon_autologin && srv.rcon_password.is_some())
@@ -165,8 +167,10 @@ pub fn App() -> Element {
                     autoconnect_targets.len()
                 );
 
+                // 2. Verbindungen asynchron starten
                 for (addr, password) in autoconnect_targets {
                     println!("[AUTO-CONNECT] Triggering autologin for {}", addr);
+                    // Wir nutzen den bestehenden Callback, der bereits intern `spawn` verwendet
                     connect_fn.call((addr, password));
                 }
             }
@@ -178,63 +182,52 @@ pub fn App() -> Element {
     // ------------------------------------------------------------
 
     use_future(move || async move {
-        let (cmd_tx, cmd_rx) = mpsc::channel(100);
-        let (ui_tx, mut ui_rx) = mpsc::channel(100);
+        let scanner = Scanner::bind().await;
+        state.query_tx.set(Some(scanner.query_sender()));
 
-        state.query_tx.set(Some(cmd_tx));
+        let mut rx = scanner.receiver_parsed;
 
-        if let Ok(scanner) = Scanner::new("0.0.0.0:0", cmd_rx, ui_tx).await {
-            tokio::spawn(async move {
-                scanner.run().await;
-            });
-        } else {
-            eprintln!("[SCANNER] Failed to bind UDP socket for scanner");
-            return;
-        }
-
-        while let Some(update) = ui_rx.recv().await {
+        while let Some(update) = rx.recv().await {
             let now = SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap()
                 .as_secs() as i64;
-            println!("ui received update: {:?}", update);
-            state.servers.with_mut(|map| match update {
-                ServerUpdate::FullServer(mut incoming) => {
-                    let addr = incoming.socket_addr;
 
-                    if let Some(existing) = map.get_mut(&addr) {
-                        if incoming.players_list.is_empty()
-                            && !existing.scanned.players_list.is_empty()
-                        {
-                            incoming.players_list = existing.scanned.players_list.clone();
+            state.servers.with_mut(|map| {
+                match update {
+                    ServerUpdate::FullServer(mut incoming) => {
+                        let addr = incoming.socket_addr;
+
+                        if let Some(existing) = map.get_mut(&addr) {
+                            // Preserve existing player_list if a dedicated A2S_PLAYER query
+                            // was run recently and incoming has no player list (Source A2S_INFO)
+                            if incoming.players_list.is_empty()
+                                && !existing.scanned.players_list.is_empty()
+                            {
+                                incoming.players_list = existing.scanned.players_list.clone();
+                            }
+                            existing.scanned = incoming;
+                            existing.last_update = Some(now);
+                        } else {
+                            map.insert(
+                                addr,
+                                GameServer {
+                                    scanned: incoming,
+                                    rcon_password: None,
+                                    rcon_autologin: false,
+                                    is_favorite: false,
+                                    last_update: Some(now),
+                                },
+                            );
                         }
-                        existing.scanned = incoming;
-                        existing.last_update = Some(now);
-                    } else {
-                        map.insert(
-                            addr,
-                            GameServer {
-                                scanned: incoming,
-                                rcon_password: None,
-                                rcon_autologin: false,
-                                is_favorite: false,
-                                last_update: Some(now),
-                            },
-                        );
                     }
-                }
 
-                ServerUpdate::PlayerList { addr, players } => {
-                    if let Some(existing) = map.get_mut(&addr) {
-                        existing.scanned.players = Some(players.len() as u8);
-                        existing.scanned.players_list = players;
-                        existing.last_update = Some(now);
-                    }
-                }
-
-                ServerUpdate::Failed { addr } => {
-                    if let Some(existing) = map.get_mut(&addr) {
-                        existing.scanned.ping = None;
+                    ServerUpdate::PlayerList { addr, players } => {
+                        if let Some(existing) = map.get_mut(&addr) {
+                            existing.scanned.players = Some(players.len() as u8);
+                            existing.scanned.players_list = players;
+                            existing.last_update = Some(now);
+                        }
                     }
                 }
             });
@@ -289,12 +282,7 @@ pub fn App() -> Element {
             });
 
             for addr in to_ping {
-                let _ = qry
-                    .send(ScanCommand::ScanServer {
-                        addr,
-                        query_type: PendingQuery::Info,
-                    })
-                    .await;
+                let _ = qry.send(addr).await;
             }
         }
     });
