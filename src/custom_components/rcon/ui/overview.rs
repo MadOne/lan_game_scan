@@ -1088,6 +1088,10 @@ fn RconChatInput(
 // CONFIG
 // =============================================================================
 
+// =============================================================================
+// CONFIG
+// =============================================================================
+
 #[component]
 fn RconConfig(on_command: EventHandler<String>) -> Element {
     let mut show_config = use_signal(|| false);
@@ -1123,6 +1127,10 @@ fn RconConfig(on_command: EventHandler<String>) -> Element {
                         class: "text-indigo-400 text-[10px] font-black tracking-widest pb-2 mb-3 border-b border-zinc-800",
                         "MATCH CONFIG"
                     }
+
+                    // =================================================
+                    // GAME MODE + CUSTOM EXEC
+                    // =================================================
 
                     div {
                         class: "grid grid-cols-2 gap-4",
@@ -1280,6 +1288,373 @@ fn RconConfig(on_command: EventHandler<String>) -> Element {
 
                                             "EXEC"
                                         }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // =================================================
+                    // BOTS
+                    // =================================================
+
+                    div {
+                        class: "border-t border-zinc-800 mt-4 pt-3",
+
+                        div {
+                            class: "text-emerald-400 text-[10px] font-black tracking-widest text-center pb-2",
+                            "BOTS"
+                        }
+
+                        div {
+                            class: "grid grid-cols-2 gap-4",
+
+                            // =============================================
+                            // ADD BOT
+                            // =============================================
+
+                            div {
+                                class: "min-w-0",
+
+                                div {
+                                    class: "text-zinc-500 text-[9px] font-black tracking-widest pb-1.5",
+                                    "ADD BOT"
+                                }
+
+                                div {
+                                    class: "grid grid-cols-3 gap-1",
+
+                                    button {
+                                        class: "
+                                            px-2 py-1.5
+                                            rounded
+                                            text-[9px]
+                                            font-bold
+                                            text-emerald-300/80
+                                            bg-zinc-950
+                                            border border-zinc-800
+                                            hover:bg-emerald-500/10
+                                            hover:border-emerald-700
+                                            hover:text-emerald-200
+                                            transition-colors
+                                        ",
+
+                                        onclick: move |_| {
+                                            on_command.call("bot_add".to_string());
+                                        },
+
+                                        "ANY"
+                                    }
+
+                                    button {
+                                        class: "
+                                            px-2 py-1.5
+                                            rounded
+                                            text-[9px]
+                                            font-bold
+                                            text-red-300/80
+                                            bg-zinc-950
+                                            border border-zinc-800
+                                            hover:bg-red-500/10
+                                            hover:border-red-700
+                                            hover:text-red-200
+                                            transition-colors
+                                        ",
+
+                                        onclick: move |_| {
+                                            on_command.call("bot_add T".to_string());
+                                        },
+
+                                        "T"
+                                    }
+
+                                    button {
+                                        class: "
+                                            px-2 py-1.5
+                                            rounded
+                                            text-[9px]
+                                            font-bold
+                                            text-blue-300/80
+                                            bg-zinc-950
+                                            border border-zinc-800
+                                            hover:bg-blue-500/10
+                                            hover:border-blue-700
+                                            hover:text-blue-200
+                                            transition-colors
+                                        ",
+
+                                        onclick: move |_| {
+                                            on_command.call("bot_add CT".to_string());
+                                        },
+
+                                        "CT"
+                                    }
+                                }
+                            }
+
+                            // =============================================
+                            // KICK BOT
+                            // =============================================
+
+                            div {
+                                class: "min-w-0",
+
+                                div {
+                                    class: "text-zinc-500 text-[9px] font-black tracking-widest pb-1.5",
+                                    "KICK BOT"
+                                }
+
+                                div {
+                                    class: "grid grid-cols-3 gap-1",
+
+                                    button {
+                                        class: "
+                                            px-2 py-1.5
+                                            rounded
+                                            text-[9px]
+                                            font-bold
+                                            text-red-300/80
+                                            bg-zinc-950
+                                            border border-zinc-800
+                                            hover:bg-red-500/10
+                                            hover:border-red-700
+                                            hover:text-red-200
+                                            transition-colors
+                                        ",
+
+                                        onclick: move |_| {
+                                            on_command.call("bot_kick".to_string());
+                                        },
+
+                                        "ALL"
+                                    }
+
+                                    button {
+                                        class: "
+                                            px-2 py-1.5
+                                            rounded
+                                            text-[9px]
+                                            font-bold
+                                            text-red-300/80
+                                            bg-zinc-950
+                                            border border-zinc-800
+                                            hover:bg-red-500/10
+                                            hover:border-red-700
+                                            hover:text-red-200
+                                            transition-colors
+                                        ",
+
+                                        onclick: move |_| {
+                                            on_command.call("bot_kick T".to_string());
+                                        },
+
+                                        "T"
+                                    }
+
+                                    button {
+                                        class: "
+                                            px-2 py-1.5
+                                            rounded
+                                            text-[9px]
+                                            font-bold
+                                            text-blue-300/80
+                                            bg-zinc-950
+                                            border border-zinc-800
+                                            hover:bg-blue-500/10
+                                            hover:border-blue-700
+                                            hover:text-blue-200
+                                            transition-colors
+                                        ",
+
+                                        onclick: move |_| {
+                                            on_command.call("bot_kick CT".to_string());
+                                        },
+
+                                        "CT"
+                                    }
+                                }
+                            }
+
+                            // =============================================
+                            // KILL BOT
+                            // =============================================
+
+                            div {
+                                class: "min-w-0",
+
+                                div {
+                                    class: "text-zinc-500 text-[9px] font-black tracking-widest pb-1.5",
+                                    "KILL BOT"
+                                }
+
+                                div {
+                                    class: "grid grid-cols-3 gap-1",
+
+                                    button {
+                                        class: "
+                                            px-2 py-1.5
+                                            rounded
+                                            text-[9px]
+                                            font-bold
+                                            text-orange-300/80
+                                            bg-zinc-950
+                                            border border-zinc-800
+                                            hover:bg-orange-500/10
+                                            hover:border-orange-700
+                                            hover:text-orange-200
+                                            transition-colors
+                                        ",
+
+                                        onclick: move |_| {
+                                            on_command.call("bot_kill".to_string());
+                                        },
+
+                                        "ALL"
+                                    }
+
+                                    button {
+                                        class: "
+                                            px-2 py-1.5
+                                            rounded
+                                            text-[9px]
+                                            font-bold
+                                            text-red-300/80
+                                            bg-zinc-950
+                                            border border-zinc-800
+                                            hover:bg-red-500/10
+                                            hover:border-red-700
+                                            hover:text-red-200
+                                            transition-colors
+                                        ",
+
+                                        onclick: move |_| {
+                                            on_command.call("bot_kill T".to_string());
+                                        },
+
+                                        "T"
+                                    }
+
+                                    button {
+                                        class: "
+                                            px-2 py-1.5
+                                            rounded
+                                            text-[9px]
+                                            font-bold
+                                            text-blue-300/80
+                                            bg-zinc-950
+                                            border border-zinc-800
+                                            hover:bg-blue-500/10
+                                            hover:border-blue-700
+                                            hover:text-blue-200
+                                            transition-colors
+                                        ",
+
+                                        onclick: move |_| {
+                                            on_command.call("bot_kill CT".to_string());
+                                        },
+
+                                        "CT"
+                                    }
+                                }
+                            }
+
+                            // =============================================
+                            // DIFFICULTY
+                            // =============================================
+
+                            div {
+                                class: "min-w-0",
+
+                                div {
+                                    class: "text-zinc-500 text-[9px] font-black tracking-widest pb-1.5",
+                                    "DIFFICULTY"
+                                }
+
+                                div {
+                                    class: "grid grid-cols-4 gap-1",
+
+                                    button {
+                                        class: "
+                                            px-2 py-1.5
+                                            rounded
+                                            text-[9px]
+                                            font-bold
+                                            text-zinc-400
+                                            bg-zinc-950
+                                            border border-zinc-800
+                                            hover:border-zinc-600
+                                            hover:text-zinc-200
+                                            transition-colors
+                                        ",
+
+                                        onclick: move |_| {
+                                            on_command.call("bot_difficulty 0".to_string());
+                                        },
+
+                                        "EASY"
+                                    }
+
+                                    button {
+                                        class: "
+                                            px-2 py-1.5
+                                            rounded
+                                            text-[9px]
+                                            font-bold
+                                            text-zinc-300
+                                            bg-zinc-950
+                                            border border-zinc-800
+                                            hover:border-indigo-700
+                                            hover:text-indigo-200
+                                            transition-colors
+                                        ",
+
+                                        onclick: move |_| {
+                                            on_command.call("bot_difficulty 1".to_string());
+                                        },
+
+                                        "NORMAL"
+                                    }
+
+                                    button {
+                                        class: "
+                                            px-2 py-1.5
+                                            rounded
+                                            text-[9px]
+                                            font-bold
+                                            text-amber-300/80
+                                            bg-zinc-950
+                                            border border-zinc-800
+                                            hover:border-amber-700
+                                            hover:text-amber-200
+                                            transition-colors
+                                        ",
+
+                                        onclick: move |_| {
+                                            on_command.call("bot_difficulty 2".to_string());
+                                        },
+
+                                        "HARD"
+                                    }
+
+                                    button {
+                                        class: "
+                                            px-2 py-1.5
+                                            rounded
+                                            text-[9px]
+                                            font-bold
+                                            text-red-300/80
+                                            bg-zinc-950
+                                            border border-zinc-800
+                                            hover:border-red-700
+                                            hover:text-red-200
+                                            transition-colors
+                                        ",
+
+                                        onclick: move |_| {
+                                            on_command.call("bot_difficulty 3".to_string());
+                                        },
+
+                                        "EXPERT"
                                     }
                                 }
                             }

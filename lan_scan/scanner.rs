@@ -3,71 +3,12 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use serde::{Deserialize, Serialize};
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::time::interval;
 
-use crate::scanner::parser::{self, ParseResult, SplitBuffer};
-use crate::server::ScannedServer;
-
-/// Defines the type of query currently pending for a server endpoint
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PendingQuery {
-    Info,
-    Player,
-    Rules,
-}
-
-/// Commands sent to the Scanner to initiate queries
-#[derive(Debug)]
-pub enum ScanCommand {
-    /// Scan a single target endpoint
-    ScanServer {
-        addr: SocketAddr,
-        query_type: PendingQuery,
-    },
-    /// Batch scan multiple target endpoints
-    BatchScan {
-        addrs: Vec<SocketAddr>,
-        query_type: PendingQuery,
-    },
-    /// Cancel any active scans
-    Cancel,
-}
-
-/// Internal signals for retrying queries after receiving challenge tokens
-#[derive(Debug)]
-pub enum RetrySignal {
-    Info(SocketAddr),
-    Player(SocketAddr),
-}
-
-/// Player details returned by server queries
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct PlayerInfo {
-    pub name: String,
-    pub score: i32,
-    pub ping: Option<u16>,
-    pub duration_secs: Option<f32>,
-    pub index: Option<u8>,
-    pub team: Option<u8>,
-    pub skin: Option<String>,
-    pub is_bot: bool,
-}
-
-/// Dispatched back to the UI or coordinator layer
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum ServerUpdate {
-    FullServer(ScannedServer),
-    PlayerList {
-        addr: SocketAddr,
-        players: Vec<PlayerInfo>,
-    },
-    Failed {
-        addr: SocketAddr,
-    },
-}
+use crate::lan_scann::parser::{self, ParseResult, SplitBuffer};
+use crate::lan_scann::{PendingQuery, ScanCommand, ServerUpdate};
 
 pub struct Scanner {
     socket: Arc<UdpSocket>,

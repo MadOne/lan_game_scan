@@ -9,11 +9,10 @@ mod network;
 //mod components;
 mod custom_components;
 mod misc;
-pub mod scanner;
 mod state;
 
 use crate::app::{App, ShutdownSignal};
-use crate::scanner::*;
+use crate::lan_scann::*;
 use crate::server::ScannedServer;
 
 use dioxus::desktop::tao::window::Icon;

@@ -5,7 +5,7 @@ use crate::custom_components::server::LAN;
 use crate::custom_components::ui::RconTab;
 use crate::custom_components::Navbar;
 use crate::misc::load_from_disk;
-use crate::scanner::scanner::ScanCommand;
+use crate::scanner::server::ScanCommand;
 use crate::scanner::{PendingQuery, Scanner, ServerUpdate};
 use crate::state::AppState;
 use crate::state::GameServer;
@@ -125,7 +125,28 @@ pub fn App() -> Element {
         let mut state = state;
 
         spawn(async move {
-            if let Some(session) = RconSession::connect(addr, password).await {
+            if let Some(mut session) = RconSession::connect(addr, password).await {
+                let local_ip = log_receiver_ip(addr).unwrap_or_else(|| Ipv4Addr::new(127, 0, 0, 1));
+                let port = 7131; // Match your Axum server port
+                let log_url = format!("http://{}:{}/MatchZyLogs", local_ip, port);
+
+                // Store the log_url in the session if you need it for cleanup later (on_drop)
+                session.log_url = Some(log_url.clone());
+
+                // 2. Send the command via RCON to instruct MatchZy/CS2 to push logs here
+                let log_command = format!("matchzy_remote_log_url \"{}\"", log_url);
+
+                let mut client_lock = session.client.lock().await;
+                match client_lock.command_no_response(&log_command).await {
+                    Ok(()) => println!("[RCON] Successfully registered log address for {}", addr),
+                    Err(e) => {
+                        eprintln!("[RCON] Failed to register log address for {}: {}", addr, e)
+                    }
+                }
+
+                // Drop lock before mutating state
+                drop(client_lock);
+
                 state.rcon_sessions.with_mut(|sessions| {
                     sessions.insert(addr, session);
                 });
@@ -321,4 +342,33 @@ pub fn App() -> Element {
             Router::<Route> {}
         }
     }
+}
+use if_addrs::{get_if_addrs, IfAddr};
+use std::net::{IpAddr, Ipv4Addr};
+
+fn log_receiver_ip(server_addr: SocketAddr) -> Option<Ipv4Addr> {
+    let server_ip = match server_addr.ip() {
+        IpAddr::V4(ip) => ip,
+        IpAddr::V6(_) => return None,
+    };
+    let interfaces = get_if_addrs().ok()?;
+    for interface in interfaces {
+        let IfAddr::V4(addr) = interface.addr else {
+            continue;
+        };
+        if addr.ip.is_loopback() {
+            continue;
+        }
+        if same_subnet(server_ip, addr.ip, addr.netmask) {
+            return Some(addr.ip);
+        }
+    }
+    None
+}
+
+fn same_subnet(a: Ipv4Addr, b: Ipv4Addr, netmask: Ipv4Addr) -> bool {
+    let a = u32::from(a);
+    let b = u32::from(b);
+    let mask = u32::from(netmask);
+    (a & mask) == (b & mask)
 }

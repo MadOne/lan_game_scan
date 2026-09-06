@@ -1,4 +1,9 @@
-use axum::{extract::State, http::StatusCode, routing::get, Router};
+use axum::{
+    extract::State,
+    http::{HeaderMap, StatusCode},
+    routing::{get, post},
+    Router,
+};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -41,6 +46,23 @@ async fn get_matchzy_config(State(state): State<MatchZyState>) -> (StatusCode, S
 }
 
 // =============================================================================
+// POST /MatchZyLogs
+//
+// Receives log/event payloads sent by MatchZy.
+// =============================================================================
+
+async fn post_matchzy_logs(headers: HeaderMap, body: String) -> StatusCode {
+    // Optional: Validate matchzy_remote_log_header_key and value if configured
+    // if let Some(val) = headers.get("your-header-key") {
+    //     // check value...
+    // }
+
+    println!("[MATCHZY LOG] Received event payload:\n{}", body);
+
+    StatusCode::OK
+}
+
+// =============================================================================
 // Server
 // =============================================================================
 
@@ -52,6 +74,7 @@ pub async fn start_matchzy_server(addr: SocketAddr) {
             "/MatchZyConfig",
             get(get_matchzy_config).post(post_matchzy_config),
         )
+        .route("/MatchZyLogs", post(post_matchzy_logs))
         .with_state(state);
 
     let listener = match tokio::net::TcpListener::bind(addr).await {
