@@ -5,17 +5,19 @@ use crate::custom_components::server::LAN;
 use crate::custom_components::ui::RconTab;
 use crate::custom_components::Navbar;
 use crate::misc::load_from_disk;
-use crate::scanner::server::ScanCommand;
-use crate::scanner::{PendingQuery, Scanner, ServerUpdate};
 use crate::state::AppState;
 use crate::state::GameServer;
 use dioxus::prelude::*;
+use lan_scan::PendingQuery;
+use lan_scan::ScanCommand;
+use lan_scan::ServerUpdate;
 use std::net::SocketAddr;
 use std::{
     collections::HashMap,
     time::{Duration, SystemTime},
 };
 
+use lan_scan::Scanner;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Notify};
 

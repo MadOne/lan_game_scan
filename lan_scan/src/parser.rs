@@ -2,37 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::net::SocketAddr;
 
-use crate::scanner::{PlayerInfo, ServerUpdate};
 use crate::server::ScannedServer;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ServerProtocol {
-    GoldSrc,
-    Source,
-    Source2,
-    Quake3,
-    GameSpy,
-    Unknown,
-}
-
-#[derive(Debug)]
-pub enum ParseResult {
-    /// Server payload parsed successfully
-    Update(ServerUpdate),
-    /// Challenge token received from server (4 bytes)
-    Challenge([u8; 4]),
-    /// Waiting for remaining split fragments to complete reassembly
-    PartialSplit,
-    /// Unrecognized packet format or corrupted data
-    Ignored,
-}
-
-/// Buffer for reassembling multi-packet UDP responses
-#[derive(Default, Debug)]
-pub struct SplitBuffer {
-    pub total: u8,
-    pub packets: BTreeMap<u8, Vec<u8>>,
-}
+use crate::{ParseResult, PlayerInfo, ServerProtocol, ServerUpdate, SplitBuffer};
 
 /// Main entry point called directly by scanner.rs upon receiving a UDP packet.
 pub fn parse(

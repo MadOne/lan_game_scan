@@ -2,6 +2,7 @@ use std::{net::SocketAddr, sync::Arc};
 
 use cbz_rcon::{RconClient, RconProtocol, RconStatus};
 use dioxus::{core::Task, prelude::*};
+use lan_scan::ServerProtocol;
 use live_log::{
     http_catcher::LiveLog,
     parser::{LogEvent, ParsedLine, Team},
@@ -13,7 +14,6 @@ use crate::{
         cvar::CvarDatabase,
     },
     network::log_receiver_ip,
-    scanner::ServerProtocol,
     state::AppState,
 };
 

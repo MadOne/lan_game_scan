@@ -1,11 +1,11 @@
 use crate::app::Route;
 use crate::misc::{connect_to_server, save_to_disk};
 
-use crate::scanner::{PendingQuery, ScanCommand};
 use crate::state::GameServer;
-use crate::{state::AppState, ScannedServer, TableMode};
+use crate::{state::AppState, TableMode};
 use cbz_rcon::RconStatus;
 use dioxus::prelude::*;
+use lan_scan::{PendingQuery, PlayerInfo, ScanCommand, ScannedServer, ServerProtocol};
 use std::net::{IpAddr, SocketAddr};
 use std::time::SystemTime;
 
@@ -396,7 +396,7 @@ fn AddServerForm(on_close: EventHandler<()>) -> Element {
                             bots: None,
                             has_password: false,
                             password: None,
-                            protocol: crate::scanner::ServerProtocol::Unknown,
+                            protocol: ServerProtocol::Unknown,
                         };
                         state.servers.with_mut(|m| {
                             m.insert(
@@ -833,8 +833,6 @@ fn DetailBox(label: String, value: String) -> Element {
         }
     }
 }
-
-use crate::scanner::PlayerInfo;
 
 #[component]
 pub fn PlayerTable(players: Vec<PlayerInfo>) -> Element {

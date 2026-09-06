@@ -2,12 +2,11 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 
 use dioxus::prelude::*;
+use lan_scan::{ScanCommand, ScannedServer};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::Sender;
 
 use crate::custom_components::code::RconSession;
-//use crate::scanner::GameServer;
-use crate::scanner::{ScanCommand, ScannedServer};
 
 #[derive(Clone, Copy)]
 pub struct AppState {

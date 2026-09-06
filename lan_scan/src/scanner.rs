@@ -7,8 +7,7 @@ use tokio::net::UdpSocket;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::time::interval;
 
-use crate::lan_scann::parser::{self, ParseResult, SplitBuffer};
-use crate::lan_scann::{PendingQuery, ScanCommand, ServerUpdate};
+use crate::{parser, ParseResult, PendingQuery, ScanCommand, ServerUpdate, SplitBuffer};
 
 pub struct Scanner {
     socket: Arc<UdpSocket>,

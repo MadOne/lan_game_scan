@@ -1,9 +1,7 @@
 // server.rs
 
 use serde::{Deserialize, Serialize};
-use std::net::SocketAddr;
-
-use crate::scanner::ServerProtocol;
+use std::{collections::BTreeMap, net::SocketAddr};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)] // Added Serialize/Deserialize
 pub struct ScannedServer {
@@ -80,4 +78,33 @@ pub enum ServerUpdate {
     Failed {
         addr: SocketAddr,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ServerProtocol {
+    GoldSrc,
+    Source,
+    Source2,
+    Quake3,
+    GameSpy,
+    Unknown,
+}
+
+#[derive(Debug)]
+pub enum ParseResult {
+    /// Server payload parsed successfully
+    Update(ServerUpdate),
+    /// Challenge token received from server (4 bytes)
+    Challenge([u8; 4]),
+    /// Waiting for remaining split fragments to complete reassembly
+    PartialSplit,
+    /// Unrecognized packet format or corrupted data
+    Ignored,
+}
+
+/// Buffer for reassembling multi-packet UDP responses
+#[derive(Default, Debug)]
+pub struct SplitBuffer {
+    pub total: u8,
+    pub packets: BTreeMap<u8, Vec<u8>>,
 }
