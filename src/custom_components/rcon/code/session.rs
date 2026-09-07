@@ -242,7 +242,7 @@ impl RconSession {
         error_prefix: &str,
     ) -> bool {
         //println!("[RCON DEBUG] Waiting for client lock: {}", command);
-        println!("[RconClient] >>> command SEND: {:?}", command);
+        //println!("[RconClient] >>> command SEND: {:?}", command);
         let mut client = self.client.lock().await;
 
         //println!("[RCON DEBUG] Client lock acquired: {}", command);
@@ -250,10 +250,10 @@ impl RconSession {
         match client.command(command).await {
             Ok(response) => {
                 //println!("[RCON DEBUG] Command returned successfully");
-                println!(
+                /*println!(
                     "[RconClient] <<< command RETURN: command={:?}, response={:?}",
                     command, response
-                );
+                );*/
                 self.push_log(RconLogEvent::RconResponse(format!(
                     "{}{}",
                     success_prefix, response
