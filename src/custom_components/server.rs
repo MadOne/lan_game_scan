@@ -473,20 +473,12 @@ fn ServerDetails(srv: GameServer) -> Element {
     });
 
     // ------------------------------------------------------------
-    // RCON CONNECT CALLBACK
-    // ------------------------------------------------------------
-
-    let connect_rcon = use_context::<Callback<(SocketAddr, String, ServerProtocol)>>();
-
-    // ------------------------------------------------------------
     // CURRENT RCON SESSION
     // ------------------------------------------------------------
 
     let status = state
-        .rcon_sessions
-        .read()
-        .get(&addr)
-        .map(|session| *session.status.read())
+        .rcon_manager
+        .with_session(&addr, |session| *session.status.read())
         .unwrap_or(RconStatus::Disconnected);
 
     let is_authenticated = status == RconStatus::Authenticated;
@@ -725,24 +717,38 @@ fn ServerDetails(srv: GameServer) -> Element {
                                     "bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-[10px] font-black"
                                 },
                                 disabled: is_connecting,
-                                onclick: {
-                                    let addr = addr;
-                                    let connect_rcon = connect_rcon;
-                                    let protocol = protocol;
-                                    move |_| {
-                                        if is_connecting { return; }
-                                        let password = rcon_password();
-                                        if password.is_empty() { return; }
-                                        state.servers.with_mut(|servers| {
-                                            if let Some(server) = servers.get_mut(&addr) {
-                                                server.rcon_password = Some(password.clone());
-                                                save_to_disk(servers);
-                                            }
-                                        });
-                                        connect_rcon.call((addr, password, protocol));
+
+                                onclick: move |_| {
+                                    if is_connecting {
+                                        return;
                                     }
+
+                                    let password = rcon_password();
+
+                                    if password.is_empty() {
+                                        return;
+                                    }
+
+                                    state.servers.with_mut(|servers| {
+                                        if let Some(server) = servers.get_mut(&addr) {
+                                            server.rcon_password = Some(password.clone());
+                                            save_to_disk(servers);
+                                        }
+                                    });
+
+                                    spawn(async move {
+                                        state
+                                            .rcon_manager
+                                            .connect(addr, password, protocol)
+                                            .await;
+                                    });
                                 },
-                                if is_connecting { "CONNECTING..." } else { "LOGIN" }
+
+                                if is_connecting {
+                                    "CONNECTING..."
+                                } else {
+                                    "LOGIN"
+                                }
                             }
                         } else {
                             button {

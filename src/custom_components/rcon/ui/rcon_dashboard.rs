@@ -8,9 +8,7 @@ use cbz_rcon::RconStatus;
 pub fn RconDashboard() -> Element {
     let state = use_context::<AppState>();
 
-    let sessions = state.rcon_sessions.read();
-
-    let mut session_list: Vec<SocketAddr> = sessions.keys().copied().collect();
+    let mut session_list = state.rcon_manager.addresses();
 
     session_list.sort_by_key(|addr| addr.to_string());
 
@@ -64,30 +62,31 @@ pub fn RconDashboard() -> Element {
 fn RconServerCard(addr: SocketAddr) -> Element {
     let state = use_context::<AppState>();
 
-    // This is the Signal itself, not a borrow into AppState.
-    // It can therefore safely be captured by the onclick handler.
     let mut selected_rcon = state.selected_rcon;
 
-    let sessions = state.rcon_sessions.read();
-
-    let session = match sessions.get(&addr) {
-        Some(session) => session,
+    let session_data = match state.rcon_manager.with_session(&addr, |session| {
+        (
+            session.status,
+            session.match_paused,
+            session.score,
+            session.players,
+            session.team_name_ct,
+            session.team_name_t,
+            session.need_attention,
+        )
+    }) {
+        Some(data) => data,
         None => {
             return rsx! {};
         }
     };
 
     // -------------------------------------------------------------------------
-    // Copy the Signals out of the borrowed session.
+    // Copy the Signals out of the session.
     // -------------------------------------------------------------------------
 
-    let status = session.status;
-    let match_paused = session.match_paused;
-    let score = session.score;
-    let players = session.players;
-    let team_name_ct = session.team_name_ct;
-    let team_name_t = session.team_name_t;
-    let need_attention = session.need_attention;
+    let (status, match_paused, score, players, team_name_ct, team_name_t, need_attention) =
+        session_data;
 
     // -------------------------------------------------------------------------
     // Session state

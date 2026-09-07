@@ -75,8 +75,24 @@ impl SourceRconClient {
 
     pub async fn command(&mut self, command: &str) -> Result<String, RconError> {
         let packet = SourceRconPacket::new(1, 2, command);
+
+        println!(
+            "[SourceRcon] >>> SEND: id={}, type={}, command={:?}",
+            packet.id, packet.packet_type, packet.body
+        );
+
         self.send_packet(&packet).await?;
+
         let response = self.receive_packet().await?;
+
+        println!(
+            "[SourceRcon] <<< RECV: id={}, type={}, body_len={}, body={:?}",
+            response.id,
+            response.packet_type,
+            response.body.len(),
+            response.body
+        );
+
         Ok(response.body)
     }
 
@@ -116,6 +132,8 @@ impl SourceRconClient {
 
         let size = i32::from_le_bytes(size_buf);
 
+        println!("[SourceRcon] <<< packet size={size}");
+
         if size < 10 {
             return Err(RconError::InvalidPacket);
         }
@@ -131,6 +149,16 @@ impl SourceRconClient {
         packet.extend_from_slice(&size_buf);
         packet.extend_from_slice(&payload);
 
-        SourceRconPacket::from_bytes(&packet)
+        let packet = SourceRconPacket::from_bytes(&packet)?;
+
+        println!(
+            "[SourceRcon] <<< packet: id={}, type={}, body_len={}, body={:?}",
+            packet.id,
+            packet.packet_type,
+            packet.body.len(),
+            packet.body
+        );
+
+        Ok(packet)
     }
 }

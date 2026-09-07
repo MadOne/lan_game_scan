@@ -9,7 +9,7 @@ use crate::state::AppState;
 pub fn Navbar() -> Element {
     let state = use_context::<AppState>();
 
-    let rcon_count = state.rcon_sessions.read().len();
+    let rcon_count = state.rcon_manager.len();
 
     let route: Route = use_route();
 

@@ -7,12 +7,7 @@ pub fn RconAttentionIndicator() -> Element {
     let state = use_context::<AppState>();
     let nav = use_navigator();
 
-    let attention_count = state
-        .rcon_sessions
-        .read()
-        .values()
-        .filter(|session| (session.need_attention)())
-        .count();
+    let attention_count = state.rcon_manager.attention_count();
 
     if attention_count == 0 {
         return rsx! {};

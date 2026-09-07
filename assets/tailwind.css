@@ -781,10 +781,6 @@ video {
   margin-top: 1.5rem;
 }
 
-.block {
-  display: block;
-}
-
 .inline-block {
   display: inline-block;
 }
@@ -821,10 +817,6 @@ video {
   height: 0.875rem;
 }
 
-.h-36 {
-  height: 9rem;
-}
-
 .h-4 {
   height: 1rem;
 }
@@ -839,10 +831,6 @@ video {
 
 .h-\[10px\] {
   height: 10px;
-}
-
-.h-\[34px\] {
-  height: 34px;
 }
 
 .h-\[38px\] {
@@ -897,10 +885,6 @@ video {
   width: 5rem;
 }
 
-.w-24 {
-  width: 6rem;
-}
-
 .w-28 {
   width: 7rem;
 }
@@ -919,10 +903,6 @@ video {
 
 .w-40 {
   width: 10rem;
-}
-
-.w-44 {
-  width: 11rem;
 }
 
 .w-5 {
@@ -1117,10 +1097,6 @@ video {
   align-items: flex-start;
 }
 
-.items-end {
-  align-items: flex-end;
-}
-
 .items-center {
   align-items: center;
 }
@@ -1186,22 +1162,10 @@ video {
   margin-bottom: calc(0.5rem * var(--tw-space-y-reverse));
 }
 
-.space-y-3 > :not([hidden]) ~ :not([hidden]) {
-  --tw-space-y-reverse: 0;
-  margin-top: calc(0.75rem * calc(1 - var(--tw-space-y-reverse)));
-  margin-bottom: calc(0.75rem * var(--tw-space-y-reverse));
-}
-
 .space-y-4 > :not([hidden]) ~ :not([hidden]) {
   --tw-space-y-reverse: 0;
   margin-top: calc(1rem * calc(1 - var(--tw-space-y-reverse)));
   margin-bottom: calc(1rem * var(--tw-space-y-reverse));
-}
-
-.space-y-6 > :not([hidden]) ~ :not([hidden]) {
-  --tw-space-y-reverse: 0;
-  margin-top: calc(1.5rem * calc(1 - var(--tw-space-y-reverse)));
-  margin-bottom: calc(1.5rem * var(--tw-space-y-reverse));
 }
 
 .divide-y > :not([hidden]) ~ :not([hidden]) {
@@ -1345,10 +1309,6 @@ video {
   border-color: rgb(127 29 29 / 0.3);
 }
 
-.border-red-900\/50 {
-  border-color: rgb(127 29 29 / 0.5);
-}
-
 .border-transparent {
   border-color: transparent;
 }
@@ -1446,10 +1406,6 @@ video {
   background-color: rgb(69 10 10 / 0.05);
 }
 
-.bg-transparent {
-  background-color: transparent;
-}
-
 .bg-white {
   --tw-bg-opacity: 1;
   background-color: rgb(255 255 255 / var(--tw-bg-opacity, 1));
@@ -1477,10 +1433,6 @@ video {
 .bg-zinc-900 {
   --tw-bg-opacity: 1;
   background-color: rgb(24 24 27 / var(--tw-bg-opacity, 1));
-}
-
-.bg-zinc-900\/20 {
-  background-color: rgb(24 24 27 / 0.2);
 }
 
 .bg-zinc-900\/30 {
@@ -1516,20 +1468,12 @@ video {
   background-color: rgb(9 9 11 / 0.7);
 }
 
-.p-10 {
-  padding: 2.5rem;
-}
-
 .p-2 {
   padding: 0.5rem;
 }
 
 .p-2\.5 {
   padding: 0.625rem;
-}
-
-.p-20 {
-  padding: 5rem;
 }
 
 .p-3 {
@@ -1747,10 +1691,6 @@ video {
 
 .italic {
   font-style: italic;
-}
-
-.tracking-tight {
-  letter-spacing: -0.025em;
 }
 
 .tracking-tighter {
@@ -1977,10 +1917,6 @@ video {
   accent-color: #ef4444;
 }
 
-.opacity-0 {
-  opacity: 0;
-}
-
 .opacity-30 {
   opacity: 0.3;
 }
@@ -2041,11 +1977,6 @@ video {
   outline-style: solid;
 }
 
-.drop-shadow-md {
-  --tw-drop-shadow: drop-shadow(0 4px 3px rgb(0 0 0 / 0.07)) drop-shadow(0 2px 2px rgb(0 0 0 / 0.06));
-  filter: var(--tw-blur) var(--tw-brightness) var(--tw-contrast) var(--tw-grayscale) var(--tw-hue-rotate) var(--tw-invert) var(--tw-saturate) var(--tw-sepia) var(--tw-drop-shadow);
-}
-
 .filter {
   filter: var(--tw-blur) var(--tw-brightness) var(--tw-contrast) var(--tw-grayscale) var(--tw-hue-rotate) var(--tw-invert) var(--tw-saturate) var(--tw-sepia) var(--tw-drop-shadow);
 }
@@ -2094,16 +2025,6 @@ video {
 .placeholder\:text-zinc-700::placeholder {
   --tw-text-opacity: 1;
   color: rgb(63 63 70 / var(--tw-text-opacity, 1));
-}
-
-.placeholder\:text-zinc-800::-moz-placeholder {
-  --tw-text-opacity: 1;
-  color: rgb(39 39 42 / var(--tw-text-opacity, 1));
-}
-
-.placeholder\:text-zinc-800::placeholder {
-  --tw-text-opacity: 1;
-  color: rgb(39 39 42 / var(--tw-text-opacity, 1));
 }
 
 .hover\:border-amber-700:hover {
@@ -2223,11 +2144,6 @@ video {
 .hover\:bg-white:hover {
   --tw-bg-opacity: 1;
   background-color: rgb(255 255 255 / var(--tw-bg-opacity, 1));
-}
-
-.hover\:bg-zinc-700:hover {
-  --tw-bg-opacity: 1;
-  background-color: rgb(63 63 70 / var(--tw-bg-opacity, 1));
 }
 
 .hover\:bg-zinc-800:hover {
@@ -2359,15 +2275,6 @@ video {
 
 .group:hover .group-hover\:block {
   display: block;
-}
-
-.group:hover .group-hover\:text-indigo-400 {
-  --tw-text-opacity: 1;
-  color: rgb(129 140 248 / var(--tw-text-opacity, 1));
-}
-
-.group:hover .group-hover\:opacity-100 {
-  opacity: 1;
 }
 
 @media (min-width: 640px) {

@@ -13,13 +13,12 @@ use crate::{
 };
 use cbz_rcon::RconStatus;
 use dioxus::prelude::*;
-use lan_scan::ServerProtocol;
 use live_log::parser::LogType;
 use std::{collections::HashSet, net::SocketAddr};
 
 #[component]
 pub fn RconConsole(addr: SocketAddr) -> Element {
-    let state = use_context::<AppState>();
+    let mut state = use_context::<AppState>();
 
     let mut inner_tab = use_signal(|| RconSubTab::Overview);
 
@@ -33,10 +32,20 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
     // This belongs to RconConsole so it survives switching between tabs.
     // -------------------------------------------------------------------------
 
-    let sessions = state.rcon_sessions.read();
-
-    let session = match sessions.get(&addr) {
-        Some(session) => session,
+    let session_data = match state.rcon_manager.with_session(&addr, |session| {
+        (
+            session.logs,
+            session.status,
+            session.players,
+            session.score,
+            session.match_paused,
+            session.client.clone(),
+            session.maps,
+            session.cvar_db,
+            session.command_history,
+        )
+    }) {
+        Some(data) => data,
         None => {
             return rsx! {
                 div {
@@ -51,16 +60,10 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
     // Session state
     // -------------------------------------------------------------------------
 
-    let logs = session.logs;
-    let status_signal = session.status;
-    let players = session.players;
-    let score = session.score;
-    let paused = session.match_paused;
-    let client = session.client.clone();
-    let maps = session.maps;
-    let cvar_db = session.cvar_db;
+    let (logs, status_signal, players, score, paused, client, maps, cvar_db, command_history) =
+        session_data;
+
     let cvar_filter_popup_open = use_signal(|| false);
-    let command_history = session.command_history;
 
     let visible_events = use_signal(|| LogType::all().collect::<HashSet<LogType>>());
 
@@ -103,8 +106,6 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
         .unwrap_or(0);
 
     let protocol = server.as_ref().unwrap().scanned.protocol;
-
-    drop(sessions);
 
     let status = status_signal();
 
@@ -181,25 +182,19 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
                             class: "bg-indigo-600 text-white px-3 py-1 rounded text-[10px] font-bold",
 
                             onclick: move |_| {
-                                let password = pw_input();
-                                let mut state = state;
+                            let password = pw_input();
 
-                                spawn(async move {
-                                    let session =
-                                        crate::custom_components::rcon::code::RconSession::connect(
-                                            addr,
-                                            password,
-                                            protocol
-                                        )
-                                        .await;
+                            if password.is_empty() {
+                                return;
+                            }
 
-                                    if let Some(session) = session {
-                                        state.rcon_sessions.with_mut(|sessions| {
-                                            sessions.insert(addr, session);
-                                        });
-                                    }
-                                });
-                            },
+                            spawn(async move {
+                                state
+                                    .rcon_manager
+                                    .connect(addr, password, protocol)
+                                    .await;
+                            });
+                        },
 
                             "LOGIN"
                         }
@@ -311,11 +306,9 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
                             maps,
 
                             get_maps: move |_| {
-                                let sessions = state.rcon_sessions.read();
-
-                                if let Some(session) = sessions.get(&addr) {
+                                state.rcon_manager.with_session(&addr, |session| {
                                     session.get_maps();
-                                }
+                                });
                             },
 
                             on_command: move |command: String| {
@@ -402,14 +395,16 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
 
                                         spawn(async move {
                                             let mut client = client.lock().await;
-
+                                            println!(">>> SEND: {}", command);
                                             match client.command(&command).await {
                                                 Ok(response) => {
+                                                    println!("<<< RESPONSE FOR '{}': {:?}", command, response);
                                                     logs.write().push(
                                                         RconLogEvent::RconResponse(
                                                             response,
                                                         ),
                                                     );
+
                                                 }
 
                                                 Err(error) => {
@@ -449,11 +444,9 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
                             maps,
 
                             get_maps: move |_| {
-                                let sessions = state.rcon_sessions.read();
-
-                                if let Some(session) = sessions.get(&addr) {
+                                state.rcon_manager.with_session(&addr, |session| {
                                     session.get_maps();
-                                }
+                                });
                             },
 
                             on_command: move |command: String| {

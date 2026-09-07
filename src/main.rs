@@ -9,6 +9,7 @@ mod network;
 //mod components;
 mod custom_components;
 mod misc;
+mod rcon_manager;
 mod state;
 
 use crate::app::{App, ShutdownSignal};

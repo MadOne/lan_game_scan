@@ -59,7 +59,7 @@ impl Scanner {
         loop {
             tokio::select! {
                 // 1. Incoming command from the UI/Controller
-                Some(cmd) = self.cmd_rx.recv() => {
+                Some(_cmd) = self.cmd_rx.recv() => {
                     //self.handle_command(cmd).await;
                 }
 

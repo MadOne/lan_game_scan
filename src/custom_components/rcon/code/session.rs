@@ -1,4 +1,7 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::{
+    net::{Ipv4Addr, SocketAddr},
+    sync::Arc,
+};
 
 use cbz_rcon::{RconClient, RconProtocol, RconStatus};
 use dioxus::{core::Task, prelude::*};
@@ -14,7 +17,6 @@ use crate::{
         cvar::CvarDatabase,
     },
     network::log_receiver_ip,
-    state::{AppState, GameServer},
 };
 
 #[derive(Debug, Clone)]
@@ -64,7 +66,7 @@ impl RconSession {
             ServerProtocol::Quake3 => RconProtocol::Quake3,
             _ => panic!("Unsupported RCON protocol"),
         };
-        let addr = addr;
+
         let client = Arc::new(tokio::sync::Mutex::new(RconClient::new(
             addr,
             password,
@@ -76,29 +78,34 @@ impl RconSession {
             client,
             live_log: None,
 
-            logs: Signal::new(Vec::new()),
-            status: Signal::new(RconStatus::Disconnected),
-            players: Signal::new(RconPlayers::new()),
+            logs: Signal::new_in_scope(Vec::new(), ScopeId::APP),
+            status: Signal::new_in_scope(RconStatus::Disconnected, ScopeId::APP),
+            players: Signal::new_in_scope(RconPlayers::new(), ScopeId::APP),
 
-            match_paused: Signal::new(false),
+            match_paused: Signal::new_in_scope(false, ScopeId::APP),
 
-            score: Signal::new(TeamScore {
-                ct: 0,
-                t: 0,
-                round: 0,
-            }),
+            score: Signal::new_in_scope(
+                TeamScore {
+                    ct: 0,
+                    t: 0,
+                    round: 0,
+                },
+                ScopeId::APP,
+            ),
 
-            maps: Signal::new(Vec::new()),
+            maps: Signal::new_in_scope(Vec::new(), ScopeId::APP),
 
-            team_name_ct: Signal::new("TeamA".to_string()),
-            team_name_t: Signal::new(String::new()),
+            team_name_ct: Signal::new_in_scope("TeamA".to_string(), ScopeId::APP),
+            team_name_t: Signal::new_in_scope(String::new(), ScopeId::APP),
 
-            max_rounds: Signal::new(0),
-            need_attention: Signal::new(false),
+            max_rounds: Signal::new_in_scope(0, ScopeId::APP),
+            need_attention: Signal::new_in_scope(false, ScopeId::APP),
+
             log_url: None,
             live_log_task: None,
-            cvar_db: Signal::new(None),
-            command_history: Signal::new(Vec::new()),
+
+            cvar_db: Signal::new_in_scope(None, ScopeId::APP),
+            command_history: Signal::new_in_scope(Vec::new(), ScopeId::APP),
         }
     }
 
@@ -235,7 +242,7 @@ impl RconSession {
         error_prefix: &str,
     ) -> bool {
         //println!("[RCON DEBUG] Waiting for client lock: {}", command);
-
+        println!("[RconClient] >>> command SEND: {:?}", command);
         let mut client = self.client.lock().await;
 
         //println!("[RCON DEBUG] Client lock acquired: {}", command);
@@ -243,7 +250,10 @@ impl RconSession {
         match client.command(command).await {
             Ok(response) => {
                 //println!("[RCON DEBUG] Command returned successfully");
-
+                println!(
+                    "[RconClient] <<< command RETURN: command={:?}, response={:?}",
+                    command, response
+                );
                 self.push_log(RconLogEvent::RconResponse(format!(
                     "{}{}",
                     success_prefix, response
@@ -448,7 +458,7 @@ impl RconSession {
                 .await
                 .expect("Failed to get cvarlist via rcon");
             let db = CvarDatabase::new(&cvarlist);
-            session.cvar_db = Signal::new(Some(db));
+            session.cvar_db = Signal::new_in_scope(Some(db), ScopeId::APP);
 
             if let Some(live_log) = session.live_log.as_mut() {
                 let receiver = live_log.take_receiver();
@@ -489,6 +499,36 @@ impl RconSession {
 
         session.push_log(RconLogEvent::Info("[RCON] Session created.".to_string()));
         session.status.set(RconStatus::Authenticated);
+
+        let local_ip = log_receiver_ip(addr).unwrap_or_else(|| Ipv4Addr::new(127, 0, 0, 1));
+
+        let port = 7131;
+        let log_url = format!("http://{}:{}/MatchZyLogs", local_ip, port);
+
+        // Store the log_url in the session for cleanup later.
+        session.log_url = Some(log_url.clone());
+
+        // Tell MatchZy/CS2 where to send remote logs.
+        let log_command = format!("matchzy_remote_log_url \"{}\"", log_url);
+
+        let mut client_lock = session.client.lock().await;
+
+        //match client_lock.command_no_response(&log_command).await {
+        match client_lock.command(&log_command).await {
+            Ok(resp) => {
+                println!(
+                    "[RCON] Successfully registered log address for {}, response: {}",
+                    addr, resp
+                )
+            }
+
+            Err(e) => {
+                eprintln!("[RCON] Failed to register log address for {}: {}", addr, e)
+            }
+        }
+
+        // Drop lock before mutating state.
+        drop(client_lock);
 
         Some(session)
     }

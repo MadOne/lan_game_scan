@@ -18,9 +18,7 @@ pub fn RconTab() -> Element {
 
     let mut mobile_popup_open = use_signal(|| false);
 
-    let sessions = state.rcon_sessions.read();
-
-    let mut session_list: Vec<SocketAddr> = sessions.keys().copied().collect();
+    let mut session_list = state.rcon_manager.addresses();
 
     session_list.sort_by_key(|addr| addr.to_string());
 
@@ -59,9 +57,7 @@ pub fn RconTab() -> Element {
         let mut state = state;
 
         move |addr: SocketAddr| {
-            let session = state
-                .rcon_sessions
-                .with_mut(|sessions| sessions.remove(&addr));
+            let session = state.rcon_manager.remove(&addr);
 
             if state.selected_rcon.read().as_ref() == Some(&addr) {
                 state.selected_rcon.set(None);
@@ -405,15 +401,9 @@ pub fn RconTab() -> Element {
                                         onclick: move |event| {
                                             event.stop_propagation();
 
-                                            let session = state
-                                                .rcon_sessions
-                                                .with_mut(|sessions| {
-                                                    sessions.remove(&addr_val)
-                                                });
+                                            let session = state.rcon_manager.remove(&addr_val);
 
-                                            if state.selected_rcon.read().as_ref()
-                                                == Some(&addr_val)
-                                            {
+                                            if state.selected_rcon.read().as_ref() == Some(&addr_val) {
                                                 state.selected_rcon.set(None);
                                             }
 

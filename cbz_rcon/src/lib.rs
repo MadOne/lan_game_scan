@@ -53,16 +53,19 @@ impl RconClient {
     }
 
     pub async fn command(&mut self, command: &str) -> Result<String, RconError> {
-        println!("[RconClient] command: {command}");
-        match self {
+        println!("[RconClient] >>> command SEND: {command}");
+        let res = match self {
             RconClient::Source(client) => client.command(command).await,
             RconClient::GoldSrc(client) => client.command(command).await,
             RconClient::Source2(client) => client.command(command).await,
             RconClient::Quake3(client) => client.command(command).await,
-        }
+        };
+        println!("[RconClient] <<< command RETURN: command={command:?}, result={res:?}");
+        res
     }
 
     pub async fn command_no_response(&mut self, command: &str) -> Result<(), RconError> {
+        println!("[RconClient] >>> command_no_response SEND: {command}");
         match self {
             RconClient::Source(client) => client.command_no_response(command).await,
             RconClient::GoldSrc(client) => client.command_no_response(command).await,
