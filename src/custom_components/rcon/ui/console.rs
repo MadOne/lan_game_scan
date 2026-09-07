@@ -13,6 +13,7 @@ use crate::{
 };
 use cbz_rcon::RconStatus;
 use dioxus::prelude::*;
+use lan_scan::ServerProtocol;
 use live_log::parser::LogType;
 use std::{collections::HashSet, net::SocketAddr};
 
@@ -79,6 +80,7 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
     // -------------------------------------------------------------------------
 
     let server = state.servers.read().get(&addr).cloned();
+    //let server_unwrapped = server.expect("Server not found");
 
     let hostname = server
         .as_ref()
@@ -99,6 +101,8 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
         .as_ref()
         .and_then(|server| server.scanned.players_max)
         .unwrap_or(0);
+
+    let protocol = server.as_ref().unwrap().scanned.protocol;
 
     drop(sessions);
 
@@ -185,6 +189,7 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
                                         crate::custom_components::rcon::code::RconSession::connect(
                                             addr,
                                             password,
+                                            protocol
                                         )
                                         .await;
 

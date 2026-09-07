@@ -445,6 +445,7 @@ fn ServerDetails(srv: GameServer) -> Element {
 
     let is_online = srv.scanned.ping.is_some();
     let addr = srv.scanned.socket_addr;
+    let protocol = srv.scanned.protocol;
 
     // ------------------------------------------------------------
     // LOCAL PASSWORD EDITING STATE
@@ -475,7 +476,7 @@ fn ServerDetails(srv: GameServer) -> Element {
     // RCON CONNECT CALLBACK
     // ------------------------------------------------------------
 
-    let connect_rcon = use_context::<Callback<(SocketAddr, String)>>();
+    let connect_rcon = use_context::<Callback<(SocketAddr, String, ServerProtocol)>>();
 
     // ------------------------------------------------------------
     // CURRENT RCON SESSION
@@ -727,6 +728,7 @@ fn ServerDetails(srv: GameServer) -> Element {
                                 onclick: {
                                     let addr = addr;
                                     let connect_rcon = connect_rcon;
+                                    let protocol = protocol;
                                     move |_| {
                                         if is_connecting { return; }
                                         let password = rcon_password();
@@ -737,7 +739,7 @@ fn ServerDetails(srv: GameServer) -> Element {
                                                 save_to_disk(servers);
                                             }
                                         });
-                                        connect_rcon.call((addr, password));
+                                        connect_rcon.call((addr, password, protocol));
                                     }
                                 },
                                 if is_connecting { "CONNECTING..." } else { "LOGIN" }

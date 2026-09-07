@@ -14,7 +14,7 @@ use crate::{
         cvar::CvarDatabase,
     },
     network::log_receiver_ip,
-    state::AppState,
+    state::{AppState, GameServer},
 };
 
 #[derive(Debug, Clone)]
@@ -57,30 +57,19 @@ pub struct RconSession {
 }
 
 impl RconSession {
-    pub async fn new(addr: SocketAddr, password: String) -> Self {
-        let app_state = consume_context::<AppState>();
-
-        let server = app_state
-            .servers
-            .read()
-            .get(&addr)
-            .cloned()
-            .expect("Server not found");
-
-        let rcon_protocol = match server.scanned.protocol {
+    pub async fn new(addr: SocketAddr, password: String, protocol: ServerProtocol) -> Self {
+        let rcon_protocol = match protocol {
             ServerProtocol::Source | ServerProtocol::Source2 => RconProtocol::Source,
             ServerProtocol::GoldSrc => RconProtocol::GoldSrc,
             ServerProtocol::Quake3 => RconProtocol::Quake3,
             _ => panic!("Unsupported RCON protocol"),
         };
-
+        let addr = addr;
         let client = Arc::new(tokio::sync::Mutex::new(RconClient::new(
             addr,
             password,
             rcon_protocol,
         )));
-
-        //let live_log = LiveLog::new().await.expect("Error creating LiveLog");
 
         Self {
             addr,
@@ -423,8 +412,12 @@ impl RconSession {
     // CONNECTION / SESSION CREATION
     // =========================================================================
 
-    pub async fn connect(addr: SocketAddr, password: String) -> Option<Self> {
-        let mut session = Self::new(addr, password).await;
+    pub async fn connect(
+        addr: SocketAddr,
+        password: String,
+        protocol: ServerProtocol,
+    ) -> Option<Self> {
+        let mut session = Self::new(addr, password, protocol).await;
 
         session.push_log(RconLogEvent::Info(format!(
             "[RCON] Connecting to {}...",
@@ -437,9 +430,7 @@ impl RconSession {
 
         session.push_log(RconLogEvent::Info("[RCON] Authenticated.".to_string()));
 
-        let app_state = consume_context::<AppState>();
-        let server = app_state.servers.read().get(&addr).cloned()?;
-        let is_cs2 = matches!(server.scanned.protocol, ServerProtocol::Source2);
+        let is_cs2 = matches!(protocol, ServerProtocol::Source2);
 
         if is_cs2 {
             if !session.start_live_log().await {

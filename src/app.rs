@@ -10,6 +10,7 @@ use crate::state::GameServer;
 use dioxus::prelude::*;
 use lan_scan::PendingQuery;
 use lan_scan::ScanCommand;
+use lan_scan::ServerProtocol;
 use lan_scan::ServerUpdate;
 use std::net::SocketAddr;
 use std::{
@@ -123,40 +124,45 @@ pub fn App() -> Element {
         });
     });
 
-    let connect_rcon = Callback::new(move |(addr, password): (SocketAddr, String)| {
-        let mut state = state;
+    let connect_rcon = Callback::new(
+        move |(addr, password, protocol): (SocketAddr, String, ServerProtocol)| {
+            let mut state = state;
 
-        spawn(async move {
-            if let Some(mut session) = RconSession::connect(addr, password).await {
-                let local_ip = log_receiver_ip(addr).unwrap_or_else(|| Ipv4Addr::new(127, 0, 0, 1));
-                let port = 7131; // Match your Axum server port
-                let log_url = format!("http://{}:{}/MatchZyLogs", local_ip, port);
+            spawn(async move {
+                if let Some(mut session) = RconSession::connect(addr, password, protocol).await {
+                    let local_ip =
+                        log_receiver_ip(addr).unwrap_or_else(|| Ipv4Addr::new(127, 0, 0, 1));
+                    let port = 7131; // Match your Axum server port
+                    let log_url = format!("http://{}:{}/MatchZyLogs", local_ip, port);
 
-                // Store the log_url in the session if you need it for cleanup later (on_drop)
-                session.log_url = Some(log_url.clone());
+                    // Store the log_url in the session if you need it for cleanup later (on_drop)
+                    session.log_url = Some(log_url.clone());
 
-                // 2. Send the command via RCON to instruct MatchZy/CS2 to push logs here
-                let log_command = format!("matchzy_remote_log_url \"{}\"", log_url);
+                    // 2. Send the command via RCON to instruct MatchZy/CS2 to push logs here
+                    let log_command = format!("matchzy_remote_log_url \"{}\"", log_url);
 
-                let mut client_lock = session.client.lock().await;
-                match client_lock.command_no_response(&log_command).await {
-                    Ok(()) => println!("[RCON] Successfully registered log address for {}", addr),
-                    Err(e) => {
-                        eprintln!("[RCON] Failed to register log address for {}: {}", addr, e)
+                    let mut client_lock = session.client.lock().await;
+                    match client_lock.command_no_response(&log_command).await {
+                        Ok(()) => {
+                            println!("[RCON] Successfully registered log address for {}", addr)
+                        }
+                        Err(e) => {
+                            eprintln!("[RCON] Failed to register log address for {}: {}", addr, e)
+                        }
                     }
+
+                    // Drop lock before mutating state
+                    drop(client_lock);
+
+                    state.rcon_sessions.with_mut(|sessions| {
+                        sessions.insert(addr, session);
+                    });
+
+                    state.selected_rcon.set(Some(addr));
                 }
-
-                // Drop lock before mutating state
-                drop(client_lock);
-
-                state.rcon_sessions.with_mut(|sessions| {
-                    sessions.insert(addr, session);
-                });
-
-                state.selected_rcon.set(Some(addr));
-            }
-        });
-    });
+            });
+        },
+    );
 
     use_future(|| async {
         let addr: SocketAddr = "0.0.0.0:7131"
@@ -175,12 +181,19 @@ pub fn App() -> Element {
         let connect_fn = connect_rcon;
 
         async move {
-            let autoconnect_targets: Vec<(SocketAddr, String)> = state.servers.with(|map| {
-                map.iter()
-                    .filter(|(_, srv)| srv.rcon_autologin && srv.rcon_password.is_some())
-                    .map(|(addr, srv)| (*addr, srv.rcon_password.clone().unwrap()))
-                    .collect()
-            });
+            let autoconnect_targets: Vec<(SocketAddr, String, ServerProtocol)> =
+                state.servers.with(|map| {
+                    map.iter()
+                        .filter(|(_, srv)| srv.rcon_autologin && srv.rcon_password.is_some())
+                        .map(|(addr, srv)| {
+                            (
+                                *addr,
+                                srv.rcon_password.clone().unwrap(),
+                                srv.scanned.protocol,
+                            )
+                        })
+                        .collect()
+                });
 
             if !autoconnect_targets.is_empty() {
                 println!(
@@ -188,9 +201,9 @@ pub fn App() -> Element {
                     autoconnect_targets.len()
                 );
 
-                for (addr, password) in autoconnect_targets {
+                for (addr, password, protocol) in autoconnect_targets {
                     println!("[AUTO-CONNECT] Triggering autologin for {}", addr);
-                    connect_fn.call((addr, password));
+                    connect_fn.call((addr, password, protocol));
                 }
             }
         }
