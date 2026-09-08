@@ -395,10 +395,10 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
 
                                         spawn(async move {
                                             let mut client = client.lock().await;
-                                            println!(">>> SEND: {}", command);
+                                            tracing::debug!(">>> SEND: {}", command);
                                             match client.command(&command).await {
                                                 Ok(response) => {
-                                                    println!("<<< RESPONSE FOR '{}': {:?}", command, response);
+                                                    tracing::debug!("<<< RESPONSE FOR '{}': {:?}", command, response);
                                                     logs.write().push(
                                                         RconLogEvent::RconResponse(
                                                             response,

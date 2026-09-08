@@ -47,6 +47,12 @@ impl SourceRconPacket {
             return Err(RconError::InvalidPacket);
         }
 
+        let expected_len = size as usize + 4;
+
+        if bytes.len() != expected_len {
+            return Err(RconError::InvalidPacket);
+        }
+
         let id = i32::from_le_bytes(
             bytes[4..8]
                 .try_into()
@@ -59,7 +65,7 @@ impl SourceRconPacket {
                 .map_err(|_| RconError::InvalidPacket)?,
         );
 
-        let body_end = bytes.len().saturating_sub(2);
+        let body_end = expected_len - 2;
 
         let body =
             String::from_utf8(bytes[12..body_end].to_vec()).map_err(|_| RconError::InvalidUtf8)?;

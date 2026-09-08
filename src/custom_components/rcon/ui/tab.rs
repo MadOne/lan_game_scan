@@ -57,19 +57,15 @@ pub fn RconTab() -> Element {
         let mut state = state;
 
         move |addr: SocketAddr| {
-            let session = state.rcon_manager.remove(&addr);
-
             if state.selected_rcon.read().as_ref() == Some(&addr) {
                 state.selected_rcon.set(None);
             }
 
-            if let Some(mut session) = session {
-                spawn(async move {
-                    if !session.close().await {
-                        eprintln!("Failed to clean up RCON session for {}", addr);
-                    }
-                });
-            }
+            spawn(async move {
+                if !state.rcon_manager.disconnect(&addr).await {
+                    tracing::error!("Failed to disconnect RCON session for {}", addr);
+                }
+            });
         }
     };
 
@@ -401,22 +397,15 @@ pub fn RconTab() -> Element {
                                         onclick: move |event| {
                                             event.stop_propagation();
 
-                                            let session = state.rcon_manager.remove(&addr_val);
-
                                             if state.selected_rcon.read().as_ref() == Some(&addr_val) {
                                                 state.selected_rcon.set(None);
                                             }
 
-                                            if let Some(mut session) = session {
-                                                spawn(async move {
-                                                    if !session.close().await {
-                                                        eprintln!(
-                                                            "Failed to clean up RCON session for {}",
-                                                            addr_val
-                                                        );
-                                                    }
-                                                });
-                                            }
+                                            spawn(async move {
+                                                if !state.rcon_manager.disconnect(&addr_val).await {
+                                                    tracing::error!("Failed to disconnect RCON session for {}", addr_val);
+                                                }
+                                            });
                                         },
 
                                         "×"

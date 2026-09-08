@@ -57,19 +57,19 @@ pub fn App() -> Element {
         let shutdown = shutdown.clone();
 
         async move {
-            println!("[SHUTDOWN] Shutdown worker started");
+            tracing::debug!("[SHUTDOWN] Shutdown worker started");
             shutdown.0.notified().await;
 
-            println!("[SHUTDOWN] Shutdown requested");
+            tracing::debug!("[SHUTDOWN] Shutdown requested");
 
             state.rcon_manager.close_all().await;
 
-            println!("[SHUTDOWN] RCON cleanup complete");
+            tracing::debug!("[SHUTDOWN] RCON cleanup complete");
         }
     });
     let shutdown = use_context::<ShutdownSignal>();
     use_drop(move || {
-        println!("[UI] App scope is dropping. Signaling shutdown...");
+        tracing::debug!("[UI] App scope is dropping. Signaling shutdown...");
         shutdown.0.notify_one();
     });
 
@@ -125,7 +125,7 @@ pub fn App() -> Element {
                 scanner.run().await;
             });
         } else {
-            eprintln!("[SCANNER] Failed to bind UDP socket for scanner");
+            tracing::error!("[SCANNER] Failed to bind UDP socket for scanner");
             return;
         }
 

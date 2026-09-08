@@ -55,7 +55,7 @@ impl CvarDatabase {
         let mut db = Self {
             cvars: HashMap::new(),
         };
-        println!("cvarlist creatred");
+        tracing::debug!("cvarlist created");
         db.parse(cvar_list);
         db
     }

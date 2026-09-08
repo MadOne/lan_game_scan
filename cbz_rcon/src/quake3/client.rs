@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 use std::time::Duration;
+
 use tokio::{net::UdpSocket, time::timeout};
 
 use crate::RconError;
@@ -15,7 +16,6 @@ pub struct Quake3RconClient {
 
 impl Quake3RconClient {
     pub fn new(addr: SocketAddr, password: impl Into<String>) -> Self {
-        println!("Quake3 Rcon Client created");
         Self {
             addr,
             password: password.into(),
@@ -25,34 +25,62 @@ impl Quake3RconClient {
     }
 
     pub async fn connect(&mut self) -> Result<(), RconError> {
+        log::debug!(
+            target: "cbz_rcon::quake3",
+            "Connecting to {}",
+            self.addr
+        );
+
         let socket = UdpSocket::bind("0.0.0.0:0").await?;
         self.socket = Some(socket);
-        println!("Quake3 socket bound successfully");
 
-        // Führt das Status-Kommando zur Validierung aus
+        log::debug!(
+            target: "cbz_rcon::quake3",
+            "UDP socket bound successfully"
+        );
+
         let response = self.command("status").await?;
+
         self.authenticated = self.is_valid_status_response(&response);
 
         if !self.authenticated {
+            log::warn!(
+                target: "cbz_rcon::quake3",
+                "Quake3 authentication failed: invalid status response"
+            );
+
             return Err(RconError::AuthenticationFailed);
         }
+
+        log::debug!(
+            target: "cbz_rcon::quake3",
+            "Quake3 authentication successful"
+        );
 
         Ok(())
     }
 
-    /// Sendet ein RCON-Kommando ab, ohne auf eine Antwort zu warten.
-    /// Perfekt für Befehle, die keine Ausgabe erzeugen (z.B. map_rotate oder kick),
-    /// da hierbei kein 100ms Timeout-Fenster abgewartet werden muss.
+    /// Sends an RCON command without waiting for a response.
     pub async fn command_no_response(&self, command: &str) -> Result<(), RconError> {
         let socket = self.socket.as_ref().ok_or(RconError::NotConnected)?;
 
-        // 1. Paket zusammenbauen aus den struct-eigenen Variablen
+        log::debug!(
+            target: "cbz_rcon::quake3",
+            "Sending command: {:?}",
+            command
+        );
+
         let payload = format!("rcon \"{}\" {}\n", self.password, command);
         let mut packet = QUAKE3_HEADER.to_vec();
         packet.extend_from_slice(payload.as_bytes());
 
-        // 2. Paket an die gespeicherte Serveradresse senden
         socket.send_to(&packet, self.addr).await?;
+
+        log::trace!(
+            target: "cbz_rcon::quake3",
+            "RCON command packet sent to {}",
+            self.addr
+        );
 
         Ok(())
     }
@@ -60,27 +88,33 @@ impl Quake3RconClient {
     pub async fn command(&self, command: &str) -> Result<String, RconError> {
         let socket = self.socket.as_ref().ok_or(RconError::NotConnected)?;
 
-        // 1. Nutzt command_no_response, um das Paket verlustfrei abzusetzen
         self.command_no_response(command).await?;
 
-        println!("[QUAKE3 RCON] Command sent, waiting for response packets");
+        log::debug!(
+            target: "cbz_rcon::quake3",
+            "Waiting for RCON response"
+        );
 
         let mut full_response = String::new();
         let mut buf = [0u8; 4096];
 
-        // Das erste Paket darf bis zu 3 Sekunden brauchen
         let mut current_timeout = Duration::from_secs(3);
 
         loop {
-            // 2. Asynchrones Lesen mit dynamischem Tokio-Timeout
             let read_result = timeout(current_timeout, socket.recv_from(&mut buf)).await;
 
             match read_result {
-                Ok(Ok((amt, _))) => {
+                Ok(Ok((amt, source))) => {
+                    log::trace!(
+                        target: "cbz_rcon::quake3",
+                        "Received RCON response packet: {} bytes from {}",
+                        amt,
+                        source
+                    );
+
                     let response_bytes = &buf[..amt];
 
                     if response_bytes.starts_with(&QUAKE3_HEADER) {
-                        // Überspringe Header [0xFF,0xFF,0xFF,0xFF] + "print\n" (10 Bytes)
                         let text_bytes =
                             if response_bytes.len() >= 10 && &response_bytes[4..10] == b"print\n" {
                                 &response_bytes[10..]
@@ -90,19 +124,41 @@ impl Quake3RconClient {
 
                         let text = String::from_utf8_lossy(text_bytes);
                         full_response.push_str(&text);
+                    } else {
+                        log::trace!(
+                            target: "cbz_rcon::quake3",
+                            "Ignoring packet with invalid RCON header"
+                        );
                     }
 
-                    // Sobald Daten fließen, senken wir das Timeout für Folgepakete auf 100ms
                     current_timeout = Duration::from_millis(100);
                 }
-                Ok(Err(e)) => {
-                    return Err(RconError::from(e));
+
+                Ok(Err(error)) => {
+                    log::warn!(
+                        target: "cbz_rcon::quake3",
+                        "Failed to receive RCON response: {}",
+                        error
+                    );
+
+                    return Err(RconError::from(error));
                 }
+
                 Err(_) => {
-                    // Timeout-Logik für das Ende des UDP-Streams
                     if full_response.is_empty() {
+                        log::warn!(
+                            target: "cbz_rcon::quake3",
+                            "Timed out waiting for RCON response"
+                        );
+
                         return Err(RconError::Timeout);
                     }
+
+                    log::trace!(
+                        target: "cbz_rcon::quake3",
+                        "RCON response stream ended after timeout"
+                    );
+
                     break;
                 }
             }
@@ -112,6 +168,12 @@ impl Quake3RconClient {
     }
 
     pub fn disconnect(&mut self) {
+        log::debug!(
+            target: "cbz_rcon::quake3",
+            "Disconnecting from {}",
+            self.addr
+        );
+
         self.socket = None;
         self.authenticated = false;
     }
@@ -122,6 +184,7 @@ impl Quake3RconClient {
 
     fn is_valid_status_response(&self, response: &str) -> bool {
         let response = response.trim();
+
         !response.is_empty() && !response.contains("Bad rconpassword")
     }
 }

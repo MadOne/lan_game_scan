@@ -91,10 +91,7 @@ impl RconPlayers {
                 3 => Team::CT,
 
                 other => {
-                    eprintln!(
-                        "[RCON_PLAYERS] Unknown team {} for player {}",
-                        other, player_id
-                    );
+                    tracing::warn!("Unknown team {} for player {}", other, player_id);
 
                     continue;
                 }
@@ -113,8 +110,8 @@ impl RconPlayers {
                         Player {
                             name: String::new(),
                             team,
-                            id: 999,
-                            steamid: "ABDC".to_string(),
+                            id: player_id,
+                            steamid: String::new(),
                         },
                     );
                 }

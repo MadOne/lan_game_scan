@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::net::SocketAddr;
 
 use crate::server::ScannedServer;
@@ -11,8 +11,6 @@ pub fn parse(
     ping_ms: Option<u16>,
     split_cache: &mut HashMap<(SocketAddr, u32), SplitBuffer>,
 ) -> ParseResult {
-    //println!("Parsing data: {:?} from addr: {:?}", data, addr);
-
     // 0. Handle Source/GoldSrc Multi-packet splits (0xFEFFFFFF / -2)
     let payload = if data.len() > 12 && data.starts_with(b"\xFE\xFF\xFF\xFF") {
         match handle_split_packet(data, addr, split_cache) {
@@ -26,12 +24,15 @@ pub fn parse(
     let len = payload.len();
 
     // 1. Quake3 / CoD status response
-    if len >= 18 && payload.starts_with(b"\xFF\xFF\xFF\xFFstatusResponse") {
-        //println!("Q3 Query catched");
+    if payload.starts_with(b"\xFF\xFF\xFF\xFFstatusResponse") {
+        if payload.len() < 21 {
+            return ParseResult::Ignored;
+        }
+
         if let Some(update) = parse_quake3(&payload[20..], addr, ping_ms) {
-            //println!("Successfully parsed Q3 Server: {:?}", update);
             return ParseResult::Update(update);
         }
+
         return ParseResult::Ignored;
     }
 
@@ -40,6 +41,7 @@ pub fn parse(
         if let Ok(challenge_bytes) = payload[5..9].try_into() {
             return ParseResult::Challenge(challenge_bytes);
         }
+
         return ParseResult::Ignored;
     }
 
@@ -48,6 +50,7 @@ pub fn parse(
         if let Some(server) = parse_a2s_info(&payload[5..], addr, ping_ms) {
             return ParseResult::Update(ServerUpdate::FullServer(server));
         }
+
         return ParseResult::Ignored;
     }
 
@@ -56,6 +59,7 @@ pub fn parse(
         if let Some(server) = parse_goldsrc_info(&payload[5..], addr, ping_ms) {
             return ParseResult::Update(ServerUpdate::FullServer(server));
         }
+
         return ParseResult::Ignored;
     }
 
@@ -64,6 +68,7 @@ pub fn parse(
         if let Some(players) = parse_a2s_player(&payload[5..]) {
             return ParseResult::Update(ServerUpdate::PlayerList { addr, players });
         }
+
         return ParseResult::Ignored;
     }
 
@@ -78,9 +83,11 @@ pub fn parse(
         } else {
             &payload[4..]
         };
+
         if let Some(server) = parse_gamespy(gs_payload, addr, ping_ms) {
             return ParseResult::Update(ServerUpdate::FullServer(server));
         }
+
         return ParseResult::Ignored;
     }
 
@@ -102,16 +109,32 @@ fn handle_split_packet(
     let total = payload[8];
     let number = payload[9];
 
+    if total == 0 || number >= total {
+        return None;
+    }
+
     let entry = split_cache.entry((addr, request_id)).or_default();
+
     entry.total = total;
     entry.packets.insert(number, payload[12..].to_vec());
 
     if entry.packets.len() == total as usize {
-        let mut full_payload = vec![0xFF, 0xFF, 0xFF, 0xFF]; // Standard uncompressed header
-        for (_, pkt_data) in entry.packets.iter() {
-            full_payload.extend_from_slice(pkt_data);
+        let mut full_payload = vec![0xFF, 0xFF, 0xFF, 0xFF];
+
+        for (_, packet_data) in entry.packets.iter() {
+            full_payload.extend_from_slice(packet_data);
         }
+
         split_cache.remove(&(addr, request_id));
+
+        log::trace!(
+            target: "lan_scan::parser",
+            "Reassembled split packet from {}: {} fragments, {} bytes",
+            addr,
+            total,
+            full_payload.len()
+        );
+
         Some(full_payload)
     } else {
         None
@@ -126,6 +149,7 @@ fn parse_a2s_info(
     if payload.is_empty() {
         return None;
     }
+
     let _protocol = payload[0];
     payload = &payload[1..];
 
@@ -137,24 +161,27 @@ fn parse_a2s_info(
     if payload.len() < 2 {
         return None;
     }
+
     let server_id = u16::from_le_bytes([payload[0], payload[1]]);
     payload = &payload[2..];
 
     if payload.len() < 3 {
         return None;
     }
+
     let players = payload[0];
     let max_players = payload[1];
     let bots = payload[2];
     payload = &payload[3..];
 
-    // Skip environment + server_type
+    // Skip environment + server_type.
     if payload.len() < 2 {
         return None;
     }
+
     payload = &payload[2..];
 
-    let visibility = if !payload.is_empty() { payload[0] } else { 0 };
+    let visibility = *payload.first()?;
 
     let game_name = match server_id {
         10 => "CS".to_string(),
@@ -204,6 +231,7 @@ fn parse_goldsrc_info(
     if payload.len() < 2 {
         return None;
     }
+
     let players = payload[0];
     let max_players = payload[1];
 
@@ -236,7 +264,7 @@ fn parse_a2s_player(mut payload: &[u8]) -> Option<Vec<PlayerInfo>> {
 
     for _ in 0..player_count {
         if payload.is_empty() {
-            break;
+            return None;
         }
 
         let index = payload[0];
@@ -245,10 +273,12 @@ fn parse_a2s_player(mut payload: &[u8]) -> Option<Vec<PlayerInfo>> {
         let name = read_cstring(&mut payload)?;
 
         if payload.len() < 8 {
-            break;
+            return None;
         }
+
         let score = i32::from_le_bytes(payload[..4].try_into().ok()?);
         let duration_secs = f32::from_le_bytes(payload[4..8].try_into().ok()?);
+
         payload = &payload[8..];
 
         players.push(PlayerInfo {
@@ -268,8 +298,10 @@ fn parse_a2s_player(mut payload: &[u8]) -> Option<Vec<PlayerInfo>> {
 
 fn parse_quake3(payload: &[u8], addr: SocketAddr, ping: Option<u16>) -> Option<ServerUpdate> {
     let resp = String::from_utf8_lossy(payload);
+
     let lines: Vec<&str> = resp.split('\n').collect();
-    if lines.is_empty() {
+
+    if lines.is_empty() || lines[0].trim().is_empty() {
         return None;
     }
 
@@ -277,13 +309,21 @@ fn parse_quake3(payload: &[u8], addr: SocketAddr, ping: Option<u16>) -> Option<S
     let d: Vec<&str> = info.split('\\').collect();
 
     let mut newmap: BTreeMap<&str, &str> = BTreeMap::new();
+
     let mut i = 0;
+
     while i + 1 < d.len() {
         newmap.insert(d[i], d[i + 1]);
         i += 2;
     }
 
+    // A status response without any key/value information isn't useful.
+    if newmap.is_empty() {
+        return None;
+    }
+
     let mut players_list = Vec::new();
+
     for line in lines[1..]
         .iter()
         .map(|l| l.trim())
@@ -343,7 +383,7 @@ fn parse_quake3_player_line(line: &str) -> Option<PlayerInfo> {
 fn parse_gamespy(payload: &[u8], addr: SocketAddr, ping: Option<u16>) -> Option<ScannedServer> {
     let text = String::from_utf8_lossy(payload);
 
-    // Split on backslash and discard empty trailing/leading tokens
+    // Split on backslash and discard empty trailing/leading tokens.
     let tokens: Vec<&str> = text
         .split('\\')
         .map(|s| s.trim())
@@ -351,18 +391,28 @@ fn parse_gamespy(payload: &[u8], addr: SocketAddr, ping: Option<u16>) -> Option<
         .collect();
 
     let mut map: BTreeMap<&str, &str> = BTreeMap::new();
+
     let mut i = 0;
 
-    // Safely insert key-value pairs
     while i + 1 < tokens.len() {
         let key = tokens[i];
         let val = tokens[i + 1];
 
-        // Ignore the GameSpy trailing delimiter "final"
+        // Ignore the GameSpy trailing delimiter "final".
         if key != "final" {
             map.insert(key, val);
         }
+
         i += 2;
+    }
+
+    // Don't treat arbitrary 0x00-prefixed packets as valid GameSpy
+    // responses unless they contain recognizable server information.
+    if !map.contains_key("hostname")
+        && !map.contains_key("servername")
+        && !map.contains_key("gamename")
+    {
+        return None;
     }
 
     Some(ScannedServer {
@@ -395,12 +445,13 @@ fn parse_gamespy(payload: &[u8], addr: SocketAddr, ping: Option<u16>) -> Option<
 
 fn read_cstring(cursor: &mut &[u8]) -> Option<String> {
     let null_pos = cursor.iter().position(|&b| b == 0)?;
+
     let s = String::from_utf8_lossy(&cursor[..null_pos]).into_owned();
+
     *cursor = &cursor[null_pos + 1..];
+
     Some(s)
 }
-
-use std::collections::VecDeque;
 
 /// Extracts `count` bytes from the front of a `VecDeque<u8>`.
 /// If `count` is 0, extracts until the first null byte (`0x00`) or end of deque.
@@ -420,6 +471,7 @@ pub fn pop_bytes(payload: &mut VecDeque<u8>, count: usize) -> Vec<u8> {
             if b == 0 {
                 break;
             }
+
             result.push(b);
         }
     }

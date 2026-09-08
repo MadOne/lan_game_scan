@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 use std::time::Duration;
+
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
@@ -23,12 +24,23 @@ impl SourceRconClient {
     }
 
     pub async fn connect(&mut self) -> Result<(), RconError> {
+        log::debug!(
+            target: "cbz_rcon::source",
+            "Connecting to {}",
+            self.addr
+        );
+
         let stream = timeout(Duration::from_secs(3), TcpStream::connect(self.addr))
             .await
             .map_err(|_| RconError::Timeout)?
-            .map_err(|e| RconError::Connection(e.to_string()))?;
+            .map_err(|error| RconError::Connection(error.to_string()))?;
 
         self.stream = Some(stream);
+
+        log::debug!(
+            target: "cbz_rcon::source",
+            "TCP connection established"
+        );
 
         // SERVERDATA_AUTH
         let packet = SourceRconPacket::new(99, 3, self.password.clone());
@@ -37,35 +49,64 @@ impl SourceRconClient {
 
         let response = self.receive_packet().await?;
 
-        /*println!(
-            "[RCON] Auth response: id={}, type={}, body={:?}",
-            response.id, response.packet_type, response.body
-        );*/
+        log::trace!(
+            target: "cbz_rcon::source",
+            "Received authentication response: id={}, type={}, body_len={}",
+            response.id,
+            response.packet_type,
+            response.body.len()
+        );
 
         // Source RCON authentication failure is indicated by ID -1.
         if response.id == -1 {
+            log::warn!(
+                target: "cbz_rcon::source",
+                "Source RCON authentication failed: server rejected password"
+            );
+
             self.stream = None;
             return Err(RconError::AuthenticationFailed);
         }
 
         // We expect SERVERDATA_AUTH_RESPONSE (type 2).
         if response.packet_type != 2 {
-            self.stream = None;
+            log::warn!(
+                target: "cbz_rcon::source",
+                "Source RCON authentication failed: unexpected response type {}",
+                response.packet_type
+            );
 
+            self.stream = None;
             return Err(RconError::AuthenticationFailed);
         }
 
         // We expect our authentication request ID back.
         if response.id != 99 {
-            self.stream = None;
+            log::warn!(
+                target: "cbz_rcon::source",
+                "Source RCON authentication failed: unexpected response id {}",
+                response.id
+            );
 
+            self.stream = None;
             return Err(RconError::AuthenticationFailed);
         }
+
+        log::debug!(
+            target: "cbz_rcon::source",
+            "Source RCON authentication successful"
+        );
 
         Ok(())
     }
 
     pub fn disconnect(&mut self) {
+        log::debug!(
+            target: "cbz_rcon::source",
+            "Disconnecting from {}",
+            self.addr
+        );
+
         self.stream = None;
     }
 
@@ -74,49 +115,57 @@ impl SourceRconClient {
     }
 
     pub async fn command(&mut self, command: &str) -> Result<String, RconError> {
-        let packet = SourceRconPacket::new(1, 2, command);
+        log::debug!(
+            target: "cbz_rcon::source",
+            "Sending command: {:?}",
+            command
+        );
 
-        /*println!(
-            "[SourceRcon] >>> SEND: id={}, type={}, command={:?}",
-            packet.id, packet.packet_type, packet.body
-        );*/
+        let packet = SourceRconPacket::new(1, 2, command);
 
         self.send_packet(&packet).await?;
 
         let response = self.receive_packet().await?;
 
-        /*println!(
-            "[SourceRcon] <<< RECV: id={}, type={}, body_len={}, body={:?}",
+        log::trace!(
+            target: "cbz_rcon::source",
+            "Received command response: id={}, type={}, body_len={}",
             response.id,
             response.packet_type,
-            response.body.len(),
-            response.body
-        );*/
+            response.body.len()
+        );
 
         Ok(response.body)
     }
 
     pub async fn command_no_response(&mut self, command: &str) -> Result<(), RconError> {
+        log::debug!(
+            target: "cbz_rcon::source",
+            "Sending command without waiting for response: {:?}",
+            command
+        );
+
         let packet = SourceRconPacket::new(1, 2, command);
+
         self.send_packet(&packet).await
     }
 
     async fn send_packet(&mut self, packet: &SourceRconPacket) -> Result<(), RconError> {
-        //println!("[RCON DEBUG] send_packet(): entered");
-
         let stream = self.stream.as_mut().ok_or(RconError::NotConnected)?;
-
-        //println!("[RCON DEBUG] send_packet(): stream available");
 
         let bytes = packet.to_bytes();
 
-        //println!("[RCON DEBUG] send_packet(): writing {} bytes", bytes.len());
+        log::trace!(
+            target: "cbz_rcon::source",
+            "Sending RCON packet: id={}, type={}, size={} bytes",
+            packet.id,
+            packet.packet_type,
+            bytes.len()
+        );
 
         timeout(Duration::from_secs(3), stream.write_all(&bytes))
             .await
             .map_err(|_| RconError::Timeout)??;
-
-        //println!("[RCON DEBUG] send_packet(): write completed");
 
         Ok(())
     }
@@ -132,9 +181,19 @@ impl SourceRconClient {
 
         let size = i32::from_le_bytes(size_buf);
 
-        //Sprintln!("[SourceRcon] <<< packet size={size}");
+        log::trace!(
+            target: "cbz_rcon::source",
+            "Received RCON packet header: size={}",
+            size
+        );
 
         if size < 10 {
+            log::warn!(
+                target: "cbz_rcon::source",
+                "Invalid RCON packet size: {}",
+                size
+            );
+
             return Err(RconError::InvalidPacket);
         }
 
@@ -151,13 +210,13 @@ impl SourceRconClient {
 
         let packet = SourceRconPacket::from_bytes(&packet)?;
 
-        /*println!(
-            "[SourceRcon] <<< packet: id={}, type={}, body_len={}, body={:?}",
+        log::trace!(
+            target: "cbz_rcon::source",
+            "Parsed RCON packet: id={}, type={}, body_len={}",
             packet.id,
             packet.packet_type,
-            packet.body.len(),
-            packet.body
-        );*/
+            packet.body.len()
+        );
 
         Ok(packet)
     }

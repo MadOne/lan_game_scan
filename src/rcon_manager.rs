@@ -29,7 +29,7 @@ impl RconManager {
             false
         }
     }
-    pub fn insert(&mut self, addr: SocketAddr, session: RconSession) {
+    fn insert(&mut self, addr: SocketAddr, session: RconSession) {
         self.sessions.with_mut(|sessions| {
             sessions.insert(addr, session);
         });
@@ -41,10 +41,6 @@ impl RconManager {
         f: impl FnOnce(&RconSession) -> R,
     ) -> Option<R> {
         self.sessions.read().get(addr).map(f)
-    }
-
-    pub fn remove(&mut self, addr: &SocketAddr) -> Option<RconSession> {
-        self.sessions.with_mut(|sessions| sessions.remove(addr))
     }
 
     pub fn len(&self) -> usize {
@@ -63,26 +59,20 @@ impl RconManager {
             .count()
     }
 
-    pub fn take_all(&mut self) -> Vec<(SocketAddr, RconSession)> {
-        self.sessions
-            .with_mut(|sessions| std::mem::take(sessions))
-            .into_iter()
-            .collect()
-    }
     pub async fn close_all(&mut self) {
         let sessions = self.sessions.with_mut(|sessions| std::mem::take(sessions));
 
-        println!("[RCON] Closing {} session(s)", sessions.len());
+        tracing::debug!("[RCON] Closing {} session(s)", sessions.len());
 
         for (addr, mut session) in sessions {
-            println!("[RCON] Closing RCON session {}", addr);
+            tracing::debug!("[RCON] Closing RCON session {}", addr);
 
             let success = session.close().await;
 
-            println!("[RCON] RCON session {} closed: {}", addr, success);
+            tracing::debug!("[RCON] RCON session {} closed: {}", addr, success);
         }
 
-        println!("[RCON] RCON cleanup complete");
+        tracing::debug!("[RCON] RCON cleanup complete");
     }
 
     pub async fn connect_multiple_servers(
@@ -93,15 +83,23 @@ impl RconManager {
             return;
         }
 
-        println!(
+        tracing::debug!(
             "[AUTO-CONNECT] Found {} server(s) for autologin",
             targets.len()
         );
 
         for (addr, password, protocol) in targets {
-            println!("[AUTO-CONNECT] Connecting to {}", addr);
+            tracing::debug!("[AUTO-CONNECT] Connecting to {}", addr);
 
             self.connect(addr, password, protocol).await;
         }
+    }
+
+    pub async fn disconnect(&mut self, addr: &SocketAddr) -> bool {
+        let Some(mut session) = self.sessions.with_mut(|sessions| sessions.remove(addr)) else {
+            return false;
+        };
+
+        session.close().await
     }
 }

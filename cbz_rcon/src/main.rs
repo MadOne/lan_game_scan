@@ -5,7 +5,7 @@ use std::net::SocketAddr;
 fn prompt(name: &str) -> String {
     let mut line = String::new();
 
-    print!("{}", name);
+    println!("{}", name);
     io::stdout().flush().unwrap();
 
     io::stdin()

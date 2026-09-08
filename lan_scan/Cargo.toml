@@ -10,3 +10,4 @@ serde_json = "1.0"
 tokio = { version = "1.0", features = ["full"] }
 strum = "0.28.0"
 strum_macros = "0.28.0"
+log = "0.4.34"

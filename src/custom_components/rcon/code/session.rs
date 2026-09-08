@@ -38,7 +38,8 @@ pub struct RconSession {
     // Live log processing for this server
     // -------------------------------------------------------------------------
     pub live_log: Option<LiveLog>,
-    pub log_url: Option<String>,
+    pub live_log_url: Option<String>,
+    pub matchzy_log_url: Option<String>,
 
     // -------------------------------------------------------------------------
     // Reactive session state
@@ -59,18 +60,9 @@ pub struct RconSession {
 }
 
 impl RconSession {
-    pub async fn new(addr: SocketAddr, password: String, protocol: ServerProtocol) -> Self {
-        let rcon_protocol = match protocol {
-            ServerProtocol::Source | ServerProtocol::Source2 => RconProtocol::Source,
-            ServerProtocol::GoldSrc => RconProtocol::GoldSrc,
-            ServerProtocol::Quake3 => RconProtocol::Quake3,
-            _ => panic!("Unsupported RCON protocol"),
-        };
-
+    pub fn new(addr: SocketAddr, password: String, protocol: RconProtocol) -> Self {
         let client = Arc::new(tokio::sync::Mutex::new(RconClient::new(
-            addr,
-            password,
-            rcon_protocol,
+            addr, password, protocol,
         )));
 
         Self {
@@ -101,7 +93,8 @@ impl RconSession {
             max_rounds: Signal::new_in_scope(0, ScopeId::APP),
             need_attention: Signal::new_in_scope(false, ScopeId::APP),
 
-            log_url: None,
+            live_log_url: None,
+            matchzy_log_url: None,
             live_log_task: None,
 
             cvar_db: Signal::new_in_scope(None, ScopeId::APP),
@@ -116,7 +109,7 @@ impl RconSession {
     async fn connect_rcon(&self) -> bool {
         match self.client.lock().await.connect().await {
             Ok(()) => {
-                println!("RCON authentication successful.");
+                tracing::debug!("RCON authentication successful for {}", self.addr);
                 true
             }
 
@@ -136,6 +129,17 @@ impl RconSession {
     // =========================================================================
 
     async fn start_live_log(&mut self) -> bool {
+        let receiver_ip = match log_receiver_ip(self.addr) {
+            Some(ip) => ip,
+            None => {
+                self.push_log(RconLogEvent::Info(format!(
+                    "[LIVE_LOG] Could not determine a local IP for server {}.",
+                    self.addr
+                )));
+                return false;
+            }
+        };
+
         let live_log = match LiveLog::new().await {
             Ok(log) => log,
             Err(err) => {
@@ -148,23 +152,11 @@ impl RconSession {
         };
 
         let port = live_log.port();
-        self.live_log = Some(live_log);
 
         self.push_log(RconLogEvent::Info(format!(
             "[LIVE_LOG] Listening on port {}.",
             port
         )));
-
-        let receiver_ip = match log_receiver_ip(self.addr) {
-            Some(ip) => ip,
-            None => {
-                self.push_log(RconLogEvent::Info(format!(
-                    "[LIVE_LOG] Could not determine a local IP for server {}.",
-                    self.addr
-                )));
-                return false;
-            }
-        };
 
         let log_url = format!("http://{}:{}", receiver_ip, port);
         self.push_log(RconLogEvent::Info(format!(
@@ -180,6 +172,7 @@ impl RconSession {
             )
             .await
         {
+            live_log.stop().await;
             return false;
         }
 
@@ -191,11 +184,11 @@ impl RconSession {
             )
             .await
         {
+            live_log.stop().await;
             return false;
         }
 
         let command = format!("logaddress_add_http \"{}\"", log_url);
-        self.log_url = Some(log_url.clone());
 
         if !self
             .send_rcon_command(
@@ -205,20 +198,19 @@ impl RconSession {
             )
             .await
         {
+            live_log.stop().await;
             return false;
         }
 
-        if !self
+        let _ = self
             .send_rcon_command(
                 "logaddress_list_http",
                 "[LIVE_LOG] HTTP log addresses:\n",
                 "[LIVE_LOG] Failed to list HTTP log addresses: ",
             )
-            .await
-        {
-            return false;
-        }
-
+            .await;
+        self.live_log = Some(live_log);
+        self.live_log_url = Some(log_url);
         true
     }
 
@@ -241,19 +233,10 @@ impl RconSession {
         success_prefix: &str,
         error_prefix: &str,
     ) -> bool {
-        //println!("[RCON DEBUG] Waiting for client lock: {}", command);
-        //println!("[RconClient] >>> command SEND: {:?}", command);
         let mut client = self.client.lock().await;
-
-        //println!("[RCON DEBUG] Client lock acquired: {}", command);
 
         match client.command(command).await {
             Ok(response) => {
-                //println!("[RCON DEBUG] Command returned successfully");
-                /*println!(
-                    "[RconClient] <<< command RETURN: command={:?}, response={:?}",
-                    command, response
-                );*/
                 self.push_log(RconLogEvent::RconResponse(format!(
                     "{}{}",
                     success_prefix, response
@@ -263,8 +246,6 @@ impl RconSession {
             }
 
             Err(error) => {
-                //println!("[RCON DEBUG] Command returned error: {}", error);
-
                 self.push_log(RconLogEvent::Info(format!("{}{}", error_prefix, error)));
 
                 false
@@ -397,7 +378,10 @@ impl RconSession {
 
                         spawn(async move {
                             let mut client = client.lock().await;
-                            let _ = client.command("mp_pause_match").await;
+
+                            if let Err(error) = client.command("mp_pause_match").await {
+                                tracing::error!("Failed to pause match: {}", error);
+                            }
                         });
                     }
 
@@ -406,7 +390,10 @@ impl RconSession {
 
                         spawn(async move {
                             let mut client = client.lock().await;
-                            let _ = client.command("mp_unpause_match").await;
+
+                            if let Err(error) = client.command("mp_unpause_match").await {
+                                tracing::error!("Failed to pause match: {}", error);
+                            }
                         });
                     }
 
@@ -427,7 +414,10 @@ impl RconSession {
         password: String,
         protocol: ServerProtocol,
     ) -> Option<Self> {
-        let mut session = Self::new(addr, password, protocol).await;
+        let is_cs2 = matches!(protocol, ServerProtocol::Source2);
+        let rcon_protocol = Self::rcon_protocol(protocol)?;
+
+        let mut session = Self::new(addr, password, rcon_protocol);
 
         session.push_log(RconLogEvent::Info(format!(
             "[RCON] Connecting to {}...",
@@ -440,8 +430,6 @@ impl RconSession {
 
         session.push_log(RconLogEvent::Info("[RCON] Authenticated.".to_string()));
 
-        let is_cs2 = matches!(protocol, ServerProtocol::Source2);
-
         if is_cs2 {
             if !session.start_live_log().await {
                 session.push_log(RconLogEvent::Info(
@@ -450,18 +438,34 @@ impl RconSession {
                 return None;
             }
 
-            let cvarlist = session
-                .client
-                .lock()
-                .await
-                .command("cvarlist")
-                .await
-                .expect("Failed to get cvarlist via rcon");
+            let cvarlist = match session.client.lock().await.command("cvarlist").await {
+                Ok(response) => response,
+                Err(error) => {
+                    session.push_log(RconLogEvent::Info(format!(
+                        "[RCON] Failed to get cvarlist: {}",
+                        error
+                    )));
+
+                    String::new()
+                }
+            };
+
             let db = CvarDatabase::new(&cvarlist);
-            session.cvar_db = Signal::new_in_scope(Some(db), ScopeId::APP);
+            session.cvar_db.set(Some(db));
 
             if let Some(live_log) = session.live_log.as_mut() {
-                let receiver = live_log.take_receiver();
+                let receiver = match live_log.take_receiver() {
+                    Some(receiver) => receiver,
+                    None => {
+                        tracing::error!("Failed to obtain live log receiver for {}", session.addr);
+
+                        if let Some(live_log) = session.live_log.take() {
+                            live_log.stop().await;
+                        }
+
+                        return None;
+                    }
+                };
                 let logs = session.logs;
                 let players = session.players;
                 let match_paused = session.match_paused;
@@ -503,27 +507,27 @@ impl RconSession {
         let local_ip = log_receiver_ip(addr).unwrap_or_else(|| Ipv4Addr::new(127, 0, 0, 1));
 
         let port = 7131;
-        let log_url = format!("http://{}:{}/MatchZyLogs", local_ip, port);
+        let matchzy_log_url = format!("http://{}:{}/MatchZyLogs", local_ip, port);
 
         // Store the log_url in the session for cleanup later.
-        session.log_url = Some(log_url.clone());
+        session.matchzy_log_url = Some(matchzy_log_url.clone());
 
         // Tell MatchZy/CS2 where to send remote logs.
-        let log_command = format!("matchzy_remote_log_url \"{}\"", log_url);
+        let log_command = format!("matchzy_remote_log_url \"{}\"", matchzy_log_url);
 
         let mut client_lock = session.client.lock().await;
 
-        //match client_lock.command_no_response(&log_command).await {
         match client_lock.command(&log_command).await {
             Ok(resp) => {
-                println!(
-                    "[RCON] Successfully registered log address for {}, response: {}",
-                    addr, resp
-                )
+                tracing::debug!(
+                    "Successfully registered log address for {}, response: {}",
+                    addr,
+                    resp
+                );
             }
 
             Err(e) => {
-                eprintln!("[RCON] Failed to register log address for {}: {}", addr, e)
+                tracing::error!("Failed to register log address for {}: {}", addr, e);
             }
         }
 
@@ -590,36 +594,55 @@ impl RconSession {
     }
 
     pub async fn close(&mut self) -> bool {
-        //println!("[SHUTDOWN] RconSession::close() entered");
-
         if let Some(task) = self.live_log_task.take() {
-            //println!("[SHUTDOWN] Stopping LiveLog task");
-
             task.cancel();
-
-            //println!("[SHUTDOWN] LiveLog task stopped");
         }
 
-        let Some(log_url) = self.log_url.clone() else {
-            //println!("[SHUTDOWN] No log URL");
-            return true;
-        };
+        if let Some(live_log) = self.live_log.take() {
+            live_log.stop().await;
+        }
 
-        let command = format!("logaddress_del_http \"{}\"", log_url);
-
-        //println!("[SHUTDOWN] Sending cleanup command: {}", command);
-
+        let mut success = true;
         let mut client = self.client.lock().await;
-        match client.command_no_response(&command).await {
-            Ok(()) => {
-                //println!("[SHUTDOWN] Cleanup command sent successfully");
-                true
-            }
 
-            Err(error) => {
-                println!("[SHUTDOWN] Cleanup command failed: {}", error);
-                false
-            }
+        if let Some(live_log_url) = self.live_log_url.take() {
+            let command_live_log = format!("logaddress_del_http \"{}\"", live_log_url);
+
+            let cleanup_live_log = match client.command_no_response(&command_live_log).await {
+                Ok(()) => true,
+                Err(error) => {
+                    tracing::error!("Cleanup live log failed for {}: {}", self.addr, error);
+                    false
+                }
+            };
+
+            success &= cleanup_live_log;
+        }
+
+        if self.matchzy_log_url.take().is_some() {
+            let cleanup_matchzy = match client
+                .command_no_response("matchzy_remote_log_url \"\"")
+                .await
+            {
+                Ok(()) => true,
+                Err(error) => {
+                    tracing::error!("Cleanup MatchZy failed for {}: {}", self.addr, error);
+                    false
+                }
+            };
+
+            success &= cleanup_matchzy;
+        }
+
+        success
+    }
+
+    fn rcon_protocol(protocol: ServerProtocol) -> Option<RconProtocol> {
+        match protocol {
+            ServerProtocol::Source | ServerProtocol::Source2 => Some(RconProtocol::Source),
+            ServerProtocol::GoldSrc => Some(RconProtocol::GoldSrc),
+            ServerProtocol::Quake3 => Some(RconProtocol::Quake3),
+            _ => None,
         }
     }
 }

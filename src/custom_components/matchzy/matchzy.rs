@@ -57,7 +57,7 @@ async fn post_matchzy_logs(headers: HeaderMap, body: String) -> StatusCode {
     //     // check value...
     // }
 
-    println!("[MATCHZY LOG] Received event payload:\n{}", body);
+    tracing::debug!("[MATCHZY LOG] Received event payload:\n{}", body);
 
     StatusCode::OK
 }
@@ -81,14 +81,14 @@ pub async fn start_matchzy_server(addr: SocketAddr) {
         Ok(listener) => listener,
 
         Err(error) => {
-            eprintln!("[MATCHZY HTTP] Failed to bind {}: {}", addr, error);
+            tracing::error!("[MATCHZY HTTP] Failed to bind {}: {}", addr, error);
             return;
         }
     };
 
-    println!("[MATCHZY HTTP] Listening on http://{}", addr);
+    tracing::debug!("[MATCHZY HTTP] Listening on http://{}", addr);
 
     if let Err(error) = axum::serve(listener, app).await {
-        eprintln!("[MATCHZY HTTP] Server stopped: {}", error);
+        tracing::error!("[MATCHZY HTTP] Server stopped: {}", error);
     }
 }

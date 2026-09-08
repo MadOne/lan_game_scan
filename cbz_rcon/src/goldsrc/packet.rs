@@ -29,10 +29,6 @@ pub fn rcon_request(challenge: &str, password: &str, command: &str) -> Vec<u8> {
     packet
 }
 
-pub fn response(packet: &[u8]) -> Option<&[u8]> {
-    packet.strip_prefix(&GOLD_SRC_HEADER)
-}
-
 pub fn parse_response(response: &[u8]) -> Result<GoldSrcPacketResponse, RconError> {
     if response.starts_with(&GOLD_SRC_HEADER) {
         return Ok(GoldSrcPacketResponse::Single(response.to_vec()));
@@ -49,9 +45,13 @@ pub fn parse_response(response: &[u8]) -> Result<GoldSrcPacketResponse, RconErro
         let is_last = (raw_byte_8 & 0x80) != 0;
         let packet_number = raw_byte_8 & 0x7F;
 
-        println!(
-            "[GoldSrc RCON] raw byte 8: {:#04x} (index={}, is_last={})",
-            raw_byte_8, packet_number, is_last
+        log::trace!(
+            target: "cbz_rcon::goldsrc",
+            "Parsed multi-packet: id={}, packet_number={}, is_last={}, raw_byte={:#04x}",
+            id,
+            packet_number,
+            is_last,
+            raw_byte_8
         );
 
         let payload = response[9..].to_vec();

@@ -34,7 +34,11 @@ impl Scanner {
     ) -> Result<Self, std::io::Error> {
         let socket = UdpSocket::bind(bind_addr).await?;
         if let Err(err) = socket.set_broadcast(true) {
-            eprintln!("[SCANNER] Warning: Failed to set SO_BROADCAST: {}", err);
+            log::warn!(
+                target: "lan_scan::scanner",
+                "Failed to set SO_BROADCAST: {}",
+                err
+            );
         }
 
         Ok(Scanner {
@@ -208,9 +212,14 @@ impl Scanner {
             ParseResult::Update(update) => {
                 self.pending_queries.remove(&addr);
                 match self.ui_tx.send(update).await {
-                    Ok(_) => (), //println!("[UI_TX SUCCESS] Dispatched server update for {}", addr),
+                    Ok(_) => (),
                     Err(e) => {
-                        eprintln!("[UI_TX ERROR] Failed to send update for {}: {:?}", addr, e)
+                        log::error!(
+                            target: "lan_scan::scanner",
+                            "Failed to send update for {}: {:?}",
+                            addr,
+                            e
+                        );
                     }
                 }
             }

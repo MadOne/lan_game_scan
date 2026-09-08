@@ -61,7 +61,7 @@ fn main() {
                 ..
             } = event
             {
-                println!("[SHUTDOWN] Window close requested");
+                tracing::debug!("Window close requested");
 
                 shutdown_handler.notify_one();
             }
