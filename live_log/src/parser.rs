@@ -3,7 +3,6 @@
 // -----------------------------------------------------------------------------
 
 use std::fmt;
-use std::net::SocketAddr;
 
 use crate::{
     log_patterns::{build_patterns, LogPattern, TS_BLOCK},
@@ -68,7 +67,6 @@ pub struct ParsedLine {
     pub event: LogEvent,
     pub log_type: LogType,
     pub pretty: String,
-    pub socketaddr: SocketAddr,
 }
 
 // -----------------------------------------------------------------------------
@@ -345,6 +343,7 @@ pub enum LogEvent {
     MapLoading {
         map: String,
     },
+
     Rcon {
         addr: String,
         command: String,
@@ -512,6 +511,7 @@ impl fmt::Display for LogEvent {
             LogEvent::Ignored => "IGNORED",
 
             LogEvent::Unknown => "UNKNOWN",
+
             LogEvent::Rcon { .. } => "RCON",
         };
 
@@ -549,7 +549,7 @@ impl LogParser {
     // PARSE
     // -------------------------------------------------------------------------
 
-    pub fn parse(&self, line: &str, socketaddr: SocketAddr) -> ParsedLine {
+    pub fn parse(&self, line: &str) -> ParsedLine {
         let mut timestamp = String::new();
         let mut content = line;
 
@@ -589,9 +589,11 @@ impl LogParser {
                     Some(caps) => caps,
 
                     None => {
-                        eprintln!(
+                        log::warn!(
+                            target: "live_log::parser",
                             "RegexSet mismatch for pattern '{}': {}",
-                            pattern.id, content
+                            pattern.id,
+                            content
                         );
 
                         return ParsedLine {
@@ -600,7 +602,6 @@ impl LogParser {
                             event: LogEvent::Unknown,
                             log_type: LogType::Unknown,
                             pretty: String::new(),
-                            socketaddr,
                         };
                     }
                 };
@@ -609,9 +610,11 @@ impl LogParser {
                     Some(event) => event,
 
                     None => {
-                        eprintln!(
+                        log::warn!(
+                            target: "live_log::parser",
                             "Pattern '{}' matched but failed to parse: {}",
-                            pattern.id, content
+                            pattern.id,
+                            content
                         );
 
                         LogEvent::Unknown
@@ -623,7 +626,8 @@ impl LogParser {
             // Multiple patterns matched
             // ---------------------------------------------------------
             multiple => {
-                eprintln!(
+                log::warn!(
+                    target: "live_log::parser",
                     "AMBIGUOUS LOG LINE: {} matches: {:?}\n{}",
                     multiple.len(),
                     multiple,
@@ -663,7 +667,6 @@ impl LogParser {
             event,
             log_type,
             pretty,
-            socketaddr,
         }
     }
 }

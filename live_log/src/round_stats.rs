@@ -94,7 +94,11 @@ pub fn parse_round_stats(json: &str) -> Option<RoundStats> {
     let stats: RoundStatsRaw = match serde_json::from_str(&cleaned) {
         Ok(stats) => stats,
         Err(e) => {
-            eprintln!("RoundStats JSON parse error: {}", e);
+            log::warn!(
+                target: "live_log::round_stats",
+                "RoundStats JSON parse error: {}",
+                e
+            );
             return None;
         }
     };
@@ -109,7 +113,12 @@ pub fn parse_round_stats(json: &str) -> Option<RoundStats> {
                 players.insert(player_number, player);
             }
             None => {
-                eprintln!("FAILED TO PARSE PLAYER {}:\n{}", player_number, data);
+                log::warn!(
+                    target: "live_log::round_stats",
+                    "Failed to parse player {}: {}",
+                    player_number,
+                    data
+                );
             }
         }
     }
@@ -172,7 +181,8 @@ pub fn parse_player(data: &str) -> Option<RSPlayer> {
     let values: Vec<&str> = data.split(',').map(str::trim).collect();
 
     if values.len() != 26 {
-        eprintln!(
+        log::warn!(
+            target: "live_log::round_stats",
             "Invalid player data: expected 26 fields, got {}: {:?}",
             values.len(),
             data

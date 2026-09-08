@@ -14,9 +14,6 @@ async fn main() {
         LogType::Connection,
         LogType::RoundWin,
         LogType::GameOver,
-        // Add the specific connection variants here if they are represented
-        // by separate LogEvent variants. Otherwise LogType::Connection
-        // covers all connection events.
     ];
 
     let mut live_log = LiveLog::new().await.expect("Failed to start LiveLog");
@@ -26,7 +23,7 @@ async fn main() {
         live_log.port()
     );
 
-    let mut receiver = live_log.take_receiver();
+    let mut receiver = live_log.take_receiver().unwrap();
 
     while let Some(parsed) = receiver.recv().await {
         if !visible_logs.contains(&parsed.log_type) {

@@ -117,7 +117,7 @@ mod timestamp {
         let raw_line =
             "[LOG] 08/11/2026 - 13:34:17.302 - \"Mad_One<0><[U:1:55530433]><CT>\" entered the game";
 
-        let parsed = parser.parse(raw_line, test_socketaddr());
+        let parsed = parser.parse(raw_line);
 
         assert_eq!(parsed.timestamp, "08/11/2026 - 13:34:17.302");
     }
@@ -128,23 +128,9 @@ mod timestamp {
 
         let raw_line = "2026-08-11 - 13:34:17.302 - some content";
 
-        let parsed = parser.parse(raw_line, test_socketaddr());
+        let parsed = parser.parse(raw_line);
 
         assert_eq!(parsed.timestamp, "");
-    }
-
-    #[test]
-    fn test_socketaddr_is_preserved() {
-        let parser = LogParser::new();
-
-        let socketaddr: SocketAddr = "192.168.1.42:27015".parse().unwrap();
-
-        let line =
-            "08/11/2026 - 13:34:17.302 - \"Mad_One<0><[U:1:55530433]><CT>\" entered the game";
-
-        let parsed = parser.parse(line, socketaddr);
-
-        assert_eq!(parsed.socketaddr, socketaddr);
     }
 }
 
@@ -245,7 +231,7 @@ mod player {
 
         let line = "08/11/2026 - 13:34:17.302 - \"Mad_One<0><[U:1:55530433]><>\" entered the game";
 
-        let res = parser.parse(line, test_socketaddr());
+        let res = parser.parse(line);
 
         if let LogEvent::Connection { player, .. } = res.event {
             assert_eq!(player.id, 0);
@@ -264,7 +250,7 @@ mod player {
         let line =
             "08/11/2026 - 13:34:17.302 - \"Mad_One<0><[U:1:55530433]><CT>\" entered the game";
 
-        let res = parser.parse(line, test_socketaddr());
+        let res = parser.parse(line);
 
         if let LogEvent::Connection { player, .. } = res.event {
             assert_eq!(player.id, 0);
@@ -283,7 +269,7 @@ mod player {
         let line =
             "08/11/2026 - 13:34:17.302 - \"Mad_One<0><[U:1:55530433]>\" switched from team <CT> to <Unassigned>";
 
-        let res = parser.parse(line, test_socketaddr());
+        let res = parser.parse(line);
 
         if let LogEvent::TeamSwitch { player, from } = res.event {
             assert_eq!(player.id, 0);
@@ -335,7 +321,7 @@ mod other {
         let line =
             "08/11/2026 - 13:34:17.302 - \"Mad_One<0><[U:1:55530433]><CT>\" entered the game";
 
-        let res = parser.parse(line, test_socketaddr());
+        let res = parser.parse(line);
 
         assert_eq!(res.timestamp, "08/11/2026 - 13:34:17.302");
         assert_eq!(res.log_type, LogType::Connection);
@@ -357,7 +343,7 @@ mod other {
         let line =
             r#"[LOG] 08/11/2026 - 17:22:40.211 - "Mad_One<0><[U:1:55530433]><CT>" purchased "awp""#;
 
-        let parsed = parser.parse(line, test_socketaddr());
+        let parsed = parser.parse(line);
 
         assert_eq!(parsed.log_type, LogType::Purchase);
 
@@ -381,7 +367,7 @@ mod other {
         let line =
             r#"08/11/2026 - 17:22:40.211 - "Mad_One<0><[U:1:55530433]><CT>" purchased "awp""#;
 
-        let res = parser.parse(line, test_socketaddr());
+        let res = parser.parse(line);
 
         assert_eq!(res.log_type, LogType::Purchase);
 
@@ -404,7 +390,7 @@ mod other {
 
         let line = r#"08/11/2026 - 13:34:17.302 - "Mad_One<0><[U:1:55530433]><CT>" [-100 200 10] killed "Enemy<1><[U:1:123456]><T>" [50 300 10] with "ak47" (headshot) (penetrated)"#;
 
-        let parsed = parser.parse(line, test_socketaddr());
+        let parsed = parser.parse(line);
 
         assert_eq!(parsed.log_type, LogType::Kill);
 
@@ -450,7 +436,7 @@ mod fallback {
 
         let line = "08/11/2026 - 13:34:17.302 - This is definitely not a known CS2 event";
 
-        let parsed = parser.parse(line, test_socketaddr());
+        let parsed = parser.parse(line);
 
         assert_eq!(parsed.log_type, LogType::Unknown);
         assert!(matches!(parsed.event, LogEvent::Unknown));
@@ -645,7 +631,7 @@ mod repro_failure {
         let raw_line =
             "08/11/2026 - 17:00:15.180 - \"Mad_One<0><[U:1:55530433]><CT>\" purchased \"awp\"";
 
-        let parsed = parser.parse(raw_line, test_socketaddr());
+        let parsed = parser.parse(raw_line);
 
         assert_eq!(parsed.log_type, LogType::Purchase);
 
@@ -670,7 +656,7 @@ mod repro_failure {
 
         let line = r#"08/14/2026 - 16:20:07.596 - "Francis<13><BOT><TERRORIST>" assisted killing "Gustov<3><BOT><CT>""#;
 
-        let parsed = parser.parse(line, test_socketaddr());
+        let parsed = parser.parse(line);
 
         assert_eq!(parsed.log_type, LogType::Assist);
 
@@ -697,7 +683,7 @@ mod repro_failure {
 
         let line = r#"08/14/2026 - 19:57:51.633 - Molotov projectile spawned at -844.486694 -747.298828 186.690460, velocity 549.273193 -377.051575 108.425064"#;
 
-        let parsed = parser.parse(line, "127.0.0.1:27015".parse().unwrap());
+        let parsed = parser.parse(line);
 
         assert_eq!(parsed.log_type, LogType::Technical);
 
@@ -717,7 +703,7 @@ mod repro_failure {
 
         let line = r#"08/14/2026 - 20:01:11.508 - "Mad_One<0><[U:1:55530433]><TERRORIST>" [866 2092 -32] was killed by the bomb."#;
 
-        let parsed = parser.parse(line, "127.0.0.1:12345".parse().unwrap());
+        let parsed = parser.parse(line);
 
         assert_eq!(parsed.log_type, LogType::BombDeath);
 
@@ -739,7 +725,7 @@ mod repro_failure {
 
         let line = r#"08/14/2026 - 20:08:44.838 - ACCOLADE, FINAL: {hsp},     Mad_One<0>,     VALUE: 87.500000,       POS: 1, SCORE: 60.277779"#;
 
-        let parsed = parser.parse(line, "127.0.0.1:12345".parse().unwrap());
+        let parsed = parser.parse(line);
 
         assert_eq!(parsed.log_type, LogType::RoundAccolade);
 
@@ -768,7 +754,7 @@ mod repro_failure {
 
         let line = r#"08/14/2026 - 21:58:36.601 - Team "CT" triggered "SFUI_Notice_CTs_Win" (CT "3") (T "3")"#;
 
-        let parsed = parser.parse(line, "127.0.0.1:12345".parse().unwrap());
+        let parsed = parser.parse(line);
 
         assert_eq!(parsed.log_type, LogType::RoundWin);
 
@@ -799,9 +785,9 @@ mod repro_failure {
 
         let disabled = r#"08/15/2026 - 09:06:47.115 - Match pause is disabled - mp_unpause_match"#;
 
-        let enabled_parsed = parser.parse(enabled, "127.0.0.1:12345".parse().unwrap());
+        let enabled_parsed = parser.parse(enabled);
 
-        let disabled_parsed = parser.parse(disabled, "127.0.0.1:12345".parse().unwrap());
+        let disabled_parsed = parser.parse(disabled);
 
         // Both patterns currently produce Technical events.
         assert_eq!(enabled_parsed.log_type, LogType::Technical);

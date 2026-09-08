@@ -7,27 +7,26 @@ pub struct ServerCvars {
 
 impl ServerCvars {
     pub fn parse(input: &str) -> Option<Self> {
-        let mut values = Vec::new();
-
         let ts_re =
             Regex::new(r#"(?m)^(?:\[LOG\]\s+)?\d{2}/\d{2}/\d{4} - \d{2}:\d{2}:\d{2}\.\d{3} - "#)
                 .ok()?;
 
-        let cleaned = ts_re.replace_all(input, "").trim().to_string();
+        let cleaned = ts_re.replace_all(input, "");
 
         let cvar_re = Regex::new(r#"^"(?P<name>[^"]+)" = "(?P<value>[^"]*)"$"#).ok()?;
 
+        let mut values = Vec::new();
         let mut in_block = false;
 
         for line in cleaned.lines() {
             let line = line.trim();
 
-            if line.trim() == "server cvars start" {
+            if line == "server cvars start" {
                 in_block = true;
                 continue;
             }
 
-            if line.trim() == "server cvars end" {
+            if line == "server cvars end" {
                 if !in_block {
                     return None;
                 }

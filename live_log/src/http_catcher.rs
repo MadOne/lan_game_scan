@@ -17,6 +17,8 @@ const MAX_CVAR_LINES: usize = 1028;
 pub struct LiveLog {
     port: u16,
     receiver: Option<Receiver<ParsedLine>>,
+    http_task: tokio::task::JoinHandle<()>,
+    processor_task: tokio::task::JoinHandle<()>,
 }
 
 impl LiveLog {
@@ -28,11 +30,11 @@ impl LiveLog {
 
         // Let the OS select a free port.
         let listener = TcpListener::bind("0.0.0.0:0").await?;
-
         let port = listener.local_addr()?.port();
 
-        println!(
-            "\x1b[1;36m--- LiveLog listening on port {} ---\x1b[0m",
+        log::debug!(
+            target: "live_log",
+            "LiveLog listening on port {}",
             port
         );
 
@@ -45,9 +47,13 @@ impl LiveLog {
         // HTTP listener
         // ---------------------------------------------------------------------
 
-        tokio::spawn(async move {
+        let http_task = tokio::spawn(async move {
             if let Err(err) = axum::serve(listener, app).await {
-                eprintln!("[LIVE LOG] HTTP server stopped: {}", err);
+                log::error!(
+                    target: "live_log",
+                    "HTTP server stopped: {}",
+                    err
+                );
             }
         });
 
@@ -55,25 +61,37 @@ impl LiveLog {
         // Log processing
         // ---------------------------------------------------------------------
 
-        tokio::spawn(async move {
+        let processor_task = tokio::spawn(async move {
             let mut assembler = LogAssembler::new();
 
             while let Some(body) = rx.recv().await {
                 for line in body.lines() {
                     for message in assembler.process_line(line) {
-                        let parsed = parser.parse(&message, "0.0.0.0:0".parse().unwrap());
+                        let parsed = parser.parse(&message);
 
                         if parsed_sender.send(parsed).await.is_err() {
+                            log::debug!(
+                                target: "live_log",
+                                "Parsed log receiver was dropped; stopping processor"
+                            );
+
                             return;
                         }
                     }
                 }
             }
+
+            log::debug!(
+                target: "live_log",
+                "Log input channel closed; stopping processor"
+            );
         });
 
         Ok(Self {
             port,
             receiver: Some(parsed_receiver),
+            http_task,
+            processor_task,
         })
     }
 
@@ -82,10 +100,22 @@ impl LiveLog {
         self.port
     }
 
-    pub fn take_receiver(&mut self) -> Receiver<ParsedLine> {
-        self.receiver
-            .take()
-            .expect("LiveLog receiver was already taken")
+    pub fn take_receiver(&mut self) -> Option<Receiver<ParsedLine>> {
+        self.receiver.take()
+    }
+
+    pub async fn stop(self) {
+        log::debug!(
+            target: "live_log",
+            "Stopping LiveLog on port {}",
+            self.port
+        );
+
+        self.http_task.abort();
+        self.processor_task.abort();
+
+        let _ = self.http_task.await;
+        let _ = self.processor_task.await;
     }
 }
 
@@ -95,7 +125,12 @@ impl LiveLog {
 
 async fn handle_logs(State(tx): State<mpsc::Sender<String>>, body: String) -> impl IntoResponse {
     if tx.send(body).await.is_err() {
-        eprintln!("[LIVE LOG] Failed to send incoming log body to processor");
+        log::error!(
+            target: "live_log",
+            "Failed to forward incoming log body to processor"
+        );
+
+        return StatusCode::SERVICE_UNAVAILABLE;
     }
 
     StatusCode::OK
@@ -132,20 +167,28 @@ impl LogAssembler {
         if let Some(buffer) = self.json_buffer.as_mut() {
             buffer.push(line.to_string());
 
-            // JSON completed normally
             if line.contains("JSON_END") {
-                let buffer = self.json_buffer.take().unwrap();
+                let buffer = self.json_buffer.take();
 
-                return vec![buffer.join("\n")];
+                return match buffer {
+                    Some(buffer) => vec![buffer.join("\n")],
+                    None => Vec::new(),
+                };
             }
 
-            // Safety limit reached
             if buffer.len() >= MAX_JSON_LINES {
-                eprintln!("[JSON BUFFER LIMIT] -> {} lines", buffer.len());
+                let line_count = buffer.len();
 
-                let buffer = self.json_buffer.take().unwrap();
+                self.json_buffer = None;
 
-                return buffer;
+                log::warn!(
+                    target: "live_log",
+                    "JSON buffer exceeded {} lines; discarding incomplete block ({} lines)",
+                    MAX_JSON_LINES,
+                    line_count
+                );
+
+                return Vec::new();
             }
 
             return Vec::new();
@@ -158,20 +201,28 @@ impl LogAssembler {
         if let Some(buffer) = self.cvar_buffer.as_mut() {
             buffer.push(line.to_string());
 
-            // CVar dump completed normally
             if line.contains("server cvars end") {
-                let buffer = self.cvar_buffer.take().unwrap();
+                let buffer = self.cvar_buffer.take();
 
-                return vec![buffer.join("\n")];
+                return match buffer {
+                    Some(buffer) => vec![buffer.join("\n")],
+                    None => Vec::new(),
+                };
             }
 
-            // Safety limit reached
             if buffer.len() >= MAX_CVAR_LINES {
-                eprintln!("[CVAR BUFFER LIMIT] -> {} lines", buffer.len());
+                let line_count = buffer.len();
 
-                let buffer = self.cvar_buffer.take().unwrap();
+                self.cvar_buffer = None;
 
-                return buffer;
+                log::warn!(
+                    target: "live_log",
+                    "CVar buffer exceeded {} lines; discarding incomplete block ({} lines)",
+                    MAX_CVAR_LINES,
+                    line_count
+                );
+
+                return Vec::new();
             }
 
             return Vec::new();
