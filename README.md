@@ -18,12 +18,6 @@ The main focus is **Counter-Strike 2**, but the long-term goal is broader LAN ga
 - Parsed game events and match state
 - MatchZy integration for CS2
 - Application-wide log viewer with:
-  - log level filters
-  - crate filters
-  - target filtering
-  - text search
-  - timestamps
-  - compact targets
 - Persistent server and RCON settings
 - Desktop, Windows, Linux and Android builds
 
