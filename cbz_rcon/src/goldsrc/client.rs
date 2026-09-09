@@ -270,8 +270,17 @@ impl GoldSrcRconClient {
     }
 
     fn is_valid_status_response(&self, response: &str) -> bool {
-        let response = response.trim();
-
-        response.starts_with("Server:") && response.ends_with("#end")
+        response
+            .lines()
+            .any(|line| line.trim_start().starts_with("hostname:"))
+            && response
+                .lines()
+                .any(|line| line.trim_start().starts_with("version"))
+            && response
+                .lines()
+                .any(|line| line.trim_start().starts_with("map"))
+            && response
+                .lines()
+                .any(|line| line.trim_start().starts_with("players"))
     }
 }

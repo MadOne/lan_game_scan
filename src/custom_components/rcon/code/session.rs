@@ -504,36 +504,31 @@ impl RconSession {
         session.push_log(RconLogEvent::Info("[RCON] Session created.".to_string()));
         session.status.set(RconStatus::Authenticated);
 
-        let local_ip = log_receiver_ip(addr).unwrap_or_else(|| Ipv4Addr::new(127, 0, 0, 1));
+        if is_cs2 {
+            let local_ip = log_receiver_ip(addr).unwrap_or_else(|| Ipv4Addr::new(127, 0, 0, 1));
+            let port = 7131;
+            let matchzy_log_url = format!("http://{}:{}/MatchZyLogs", local_ip, port);
+            session.matchzy_log_url = Some(matchzy_log_url.clone());
+            let log_command = format!("matchzy_remote_log_url \"{}\"", matchzy_log_url);
+            let mut client_lock = session.client.lock().await;
 
-        let port = 7131;
-        let matchzy_log_url = format!("http://{}:{}/MatchZyLogs", local_ip, port);
+            match client_lock.command(&log_command).await {
+                Ok(resp) => {
+                    tracing::debug!(
+                        "Successfully registered log address for {}, response: {}",
+                        addr,
+                        resp
+                    );
+                }
 
-        // Store the log_url in the session for cleanup later.
-        session.matchzy_log_url = Some(matchzy_log_url.clone());
-
-        // Tell MatchZy/CS2 where to send remote logs.
-        let log_command = format!("matchzy_remote_log_url \"{}\"", matchzy_log_url);
-
-        let mut client_lock = session.client.lock().await;
-
-        match client_lock.command(&log_command).await {
-            Ok(resp) => {
-                tracing::debug!(
-                    "Successfully registered log address for {}, response: {}",
-                    addr,
-                    resp
-                );
+                Err(e) => {
+                    tracing::error!("Failed to register log address for {}: {}", addr, e);
+                }
             }
 
-            Err(e) => {
-                tracing::error!("Failed to register log address for {}: {}", addr, e);
-            }
+            // Drop lock before mutating state.
+            drop(client_lock);
         }
-
-        // Drop lock before mutating state.
-        drop(client_lock);
-
         Some(session)
     }
 

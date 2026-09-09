@@ -10,6 +10,7 @@ use crate::app::{App, ShutdownSignal};
 use dioxus::desktop::tao::window::Icon;
 use dioxus::desktop::{tao, Config, LogicalSize, WindowBuilder, WindowCloseBehaviour};
 use dioxus::prelude::*;
+use tracing_subscriber::filter::Targets;
 use tracing_subscriber::prelude::*;
 
 use std::sync::Arc;
@@ -29,7 +30,13 @@ fn main() {
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer().with_ansi(true))
         .with(app_log::AppLogLayer::new(app_log))
-        .with(tracing_subscriber::filter::LevelFilter::DEBUG)
+        .with(
+            Targets::new()
+                .with_default(tracing::Level::DEBUG)
+                .with_target("cbz_rcon", tracing::Level::TRACE)
+                .with_target("live_log", tracing::Level::TRACE)
+                .with_target("lan_game_scan", tracing::Level::TRACE),
+        )
         .init();
 
     // -------------------------------------------------------------------------

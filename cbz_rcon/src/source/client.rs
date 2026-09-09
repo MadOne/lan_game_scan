@@ -47,29 +47,56 @@ impl SourceRconClient {
 
         self.send_packet(&packet).await?;
 
-        let response = self.receive_packet().await?;
+        loop {
+            let response = self.receive_packet().await?;
 
-        log::trace!(
-            target: "cbz_rcon::source",
-            "Received authentication response: id={}, type={}, body_len={}",
-            response.id,
-            response.packet_type,
-            response.body.len()
-        );
-
-        // Source RCON authentication failure is indicated by ID -1.
-        if response.id == -1 {
-            log::warn!(
+            log::trace!(
                 target: "cbz_rcon::source",
-                "Source RCON authentication failed: server rejected password"
+                "Received authentication response: id={}, type={}, body_len={}",
+                response.id,
+                response.packet_type,
+                response.body.len()
             );
 
-            self.stream = None;
-            return Err(RconError::AuthenticationFailed);
-        }
+            if response.id == -1 {
+                log::warn!(
+                    target: "cbz_rcon::source",
+                    "Source RCON authentication failed: server rejected password"
+                );
 
-        // We expect SERVERDATA_AUTH_RESPONSE (type 2).
-        if response.packet_type != 2 {
+                self.stream = None;
+                return Err(RconError::AuthenticationFailed);
+            }
+
+            if response.packet_type == 2 {
+                if response.id != 99 {
+                    log::warn!(
+                        target: "cbz_rcon::source",
+                        "Source RCON authentication failed: unexpected response id {}",
+                        response.id
+                    );
+
+                    self.stream = None;
+                    return Err(RconError::AuthenticationFailed);
+                }
+
+                log::debug!(
+                    target: "cbz_rcon::source",
+                    "Source RCON authentication successful"
+                );
+
+                return Ok(());
+            }
+
+            if response.packet_type == 0 && response.body.is_empty() {
+                log::debug!(
+                    target: "cbz_rcon::source",
+                    "Received empty response-value packet during authentication"
+                );
+
+                continue;
+            }
+
             log::warn!(
                 target: "cbz_rcon::source",
                 "Source RCON authentication failed: unexpected response type {}",
@@ -79,25 +106,6 @@ impl SourceRconClient {
             self.stream = None;
             return Err(RconError::AuthenticationFailed);
         }
-
-        // We expect our authentication request ID back.
-        if response.id != 99 {
-            log::warn!(
-                target: "cbz_rcon::source",
-                "Source RCON authentication failed: unexpected response id {}",
-                response.id
-            );
-
-            self.stream = None;
-            return Err(RconError::AuthenticationFailed);
-        }
-
-        log::debug!(
-            target: "cbz_rcon::source",
-            "Source RCON authentication successful"
-        );
-
-        Ok(())
     }
 
     pub fn disconnect(&mut self) {
