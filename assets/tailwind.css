@@ -713,6 +713,11 @@ video {
   margin-bottom: 0.5rem;
 }
 
+.mx-3 {
+  margin-left: 0.75rem;
+  margin-right: 0.75rem;
+}
+
 .-mb-px {
   margin-bottom: -1px;
 }
@@ -961,6 +966,14 @@ video {
   width: 100vw;
 }
 
+.w-64 {
+  width: 16rem;
+}
+
+.w-\[calc\(100\%-1\.5rem\)\] {
+  width: calc(100% - 1.5rem);
+}
+
 .min-w-0 {
   min-width: 0px;
 }
@@ -1067,6 +1080,10 @@ video {
   cursor: pointer;
 }
 
+.cursor-context-menu {
+  cursor: context-menu;
+}
+
 .select-none {
   -webkit-user-select: none;
      -moz-user-select: none;
@@ -1075,6 +1092,12 @@ video {
 
 .resize-none {
   resize: none;
+}
+
+.appearance-none {
+  -webkit-appearance: none;
+     -moz-appearance: none;
+          appearance: none;
 }
 
 .grid-cols-1 {
@@ -1349,6 +1372,11 @@ video {
   border-color: rgb(9 9 11 / var(--tw-border-opacity, 1));
 }
 
+.border-red-800 {
+  --tw-border-opacity: 1;
+  border-color: rgb(153 27 27 / var(--tw-border-opacity, 1));
+}
+
 .bg-black {
   --tw-bg-opacity: 1;
   background-color: rgb(0 0 0 / var(--tw-bg-opacity, 1));
@@ -1485,6 +1513,14 @@ video {
   background-color: rgb(9 9 11 / 0.7);
 }
 
+.bg-red-900\/40 {
+  background-color: rgb(127 29 29 / 0.4);
+}
+
+.bg-red-900\/70 {
+  background-color: rgb(127 29 29 / 0.7);
+}
+
 .p-2 {
   padding: 0.5rem;
 }
@@ -1507,6 +1543,10 @@ video {
 
 .p-6 {
   padding: 1.5rem;
+}
+
+.p-1 {
+  padding: 0.25rem;
 }
 
 .px-1 {
@@ -1601,6 +1641,10 @@ video {
 
 .pt-4 {
   padding-top: 1rem;
+}
+
+.pt-1 {
+  padding-top: 0.25rem;
 }
 
 .text-left {
@@ -2104,6 +2148,11 @@ video {
   border-color: rgb(63 63 70 / var(--tw-border-opacity, 1));
 }
 
+.hover\:border-red-600:hover {
+  --tw-border-opacity: 1;
+  border-color: rgb(220 38 38 / var(--tw-border-opacity, 1));
+}
+
 .hover\:bg-amber-500\/10:hover {
   background-color: rgb(245 158 11 / 0.1);
 }
@@ -2188,6 +2237,15 @@ video {
 
 .hover\:bg-zinc-900\/70:hover {
   background-color: rgb(24 24 27 / 0.7);
+}
+
+.hover\:bg-red-900\/60:hover {
+  background-color: rgb(127 29 29 / 0.6);
+}
+
+.hover\:bg-red-800:hover {
+  --tw-bg-opacity: 1;
+  background-color: rgb(153 27 27 / var(--tw-bg-opacity, 1));
 }
 
 .hover\:text-amber-200:hover {

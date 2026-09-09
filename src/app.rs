@@ -1,5 +1,3 @@
-use crate::app_log;
-
 use crate::app_log::app_log_store;
 use crate::custom_components::applicatiton_logs::ApplicationLogs;
 use crate::custom_components::matchzy::matchzy::start_matchzy_server;

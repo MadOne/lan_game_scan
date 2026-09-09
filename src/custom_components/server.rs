@@ -486,7 +486,6 @@ fn ServerDetails(srv: GameServer) -> Element {
     let nav = use_navigator();
     let mut state = use_context::<AppState>();
 
-    let is_online = srv.scanned.ping.is_some();
     let addr = srv.scanned.socket_addr;
     let protocol = srv.scanned.protocol;
 

@@ -13,7 +13,6 @@ use crate::{
 };
 use cbz_rcon::RconStatus;
 use dioxus::prelude::*;
-use lan_scan::ServerProtocol;
 use live_log::parser::LogType;
 use std::{collections::HashSet, net::SocketAddr};
 

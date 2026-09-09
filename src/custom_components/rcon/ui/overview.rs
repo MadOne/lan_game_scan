@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 use std::net::SocketAddr;
 
 use crate::custom_components::{
-    code::{RconLogEvent, RconPlayers, Team, TeamScore},
+    code::{Player, RconLogEvent, RconPlayers, Team, TeamScore},
     ui::RconChat,
 };
 
@@ -31,30 +31,18 @@ pub fn RconOverview(
     // Keep the RconPlayers value alive while we borrow player data from it.
     let current_players = players();
 
-    let ct_players: Vec<String> = current_players
+    let ct_players: Vec<Player> = current_players
         .players()
         .values()
         .filter(|player| player.team == Team::CT)
-        .map(|player| {
-            if player.name.is_empty() {
-                "UNKNOWN".to_string()
-            } else {
-                player.name.clone()
-            }
-        })
+        .cloned()
         .collect();
 
-    let t_players: Vec<String> = current_players
+    let t_players: Vec<Player> = current_players
         .players()
         .values()
         .filter(|player| player.team == Team::Terrorist)
-        .map(|player| {
-            if player.name.is_empty() {
-                "UNKNOWN".to_string()
-            } else {
-                player.name.clone()
-            }
-        })
+        .cloned()
         .collect();
 
     let current_score = score();
@@ -92,6 +80,7 @@ pub fn RconOverview(
                     ct_players,
                     t_players,
                     score: current_score,
+                    on_command,
                 }
 
                 // ====================================================
@@ -612,7 +601,12 @@ fn RconPauseControls(paused: Signal<bool>, on_command: EventHandler<String>) -> 
 // =============================================================================
 
 #[component]
-fn RconTeams(ct_players: Vec<String>, t_players: Vec<String>, score: TeamScore) -> Element {
+fn RconTeams(
+    ct_players: Vec<Player>,
+    t_players: Vec<Player>,
+    score: TeamScore,
+    on_command: EventHandler<String>,
+) -> Element {
     rsx! {
         div {
             class: "flex-1 min-w-0 p-6 overflow-y-auto",
@@ -624,12 +618,14 @@ fn RconTeams(ct_players: Vec<String>, t_players: Vec<String>, score: TeamScore) 
                     team: Team::CT,
                     players: ct_players,
                     score: score.ct,
+                    on_command,
                 }
 
                 RconTeamColumn {
                     team: Team::Terrorist,
                     players: t_players,
                     score: score.t,
+                    on_command,
                 }
             }
         }
@@ -641,7 +637,12 @@ fn RconTeams(ct_players: Vec<String>, t_players: Vec<String>, score: TeamScore) 
 // =============================================================================
 
 #[component]
-fn RconTeamColumn(team: Team, players: Vec<String>, score: u8) -> Element {
+fn RconTeamColumn(
+    team: Team,
+    players: Vec<Player>,
+    score: u8,
+    on_command: EventHandler<String>,
+) -> Element {
     let (team_name, team_color) = match team {
         Team::CT => ("COUNTER-TERRORISTS", "blue"),
         Team::Terrorist => ("TERRORISTS", "red"),
@@ -661,10 +662,17 @@ fn RconTeamColumn(team: Team, players: Vec<String>, score: u8) -> Element {
     };
 
     let player_class = match team_color {
-        "blue" => "px-4 py-2 bg-zinc-900/60 border border-zinc-800 rounded text-blue-300 font-bold",
-        "red" => "px-4 py-2 bg-zinc-900/60 border border-zinc-800 rounded text-red-300 font-bold",
-        _ => "px-4 py-2 bg-zinc-900/60 border border-zinc-800 rounded text-zinc-300 font-bold",
+        "blue" => "px-4 py-2 bg-zinc-900/60 border border-zinc-800 rounded text-blue-300 font-bold cursor-context-menu",
+        "red" => "px-4 py-2 bg-zinc-900/60 border border-zinc-800 rounded text-red-300 font-bold cursor-context-menu",
+        _ => "px-4 py-2 bg-zinc-900/60 border border-zinc-800 rounded text-zinc-300 font-bold cursor-context-menu",
     };
+
+    // Player ID of the player whose context menu is open.
+    let mut context_player = use_signal(|| None::<u16>);
+
+    // Ban duration in minutes.
+    // 0 means permanent.
+    let mut ban_duration = use_signal(|| 0u32);
 
     rsx! {
         div {
@@ -693,9 +701,265 @@ fn RconTeamColumn(team: Team, players: Vec<String>, score: u8) -> Element {
                 class: "space-y-2",
 
                 for player in players.iter() {
-                    div {
-                        class: player_class,
-                        "{player}"
+                    {
+                        let player_id = player.id;
+                        let player_name = if player.name.is_empty() {
+                            "UNKNOWN"
+                        } else {
+                            &player.name
+                        };
+
+                        let steamid = player.steamid.clone();
+                        let is_context_player = context_player() == Some(player_id);
+
+                        rsx! {
+                            div {
+                                key: "{player_id}",
+                                class: "relative",
+
+                                // ============================================
+                                // PLAYER
+                                // ============================================
+
+                                div {
+                                    class: player_class,
+
+                                    oncontextmenu: move |event| {
+                                        event.prevent_default();
+                                        context_player.set(Some(player_id));
+                                        ban_duration.set(0);
+                                    },
+
+                                    "{player_name}"
+
+                                    // ========================================
+                                    // CONTEXT MENU
+                                    // ========================================
+
+                                    if is_context_player {
+                                        // ========================================
+                                        // OUTSIDE CLICK
+                                        // ========================================
+
+                                        div {
+                                            class: "
+                                                fixed
+                                                inset-0
+                                                z-40
+                                            ",
+
+                                            onclick: move |_| {
+                                                context_player.set(None);
+                                            },
+                                        }
+
+                                        // ========================================
+                                        // CONTEXT MENU
+                                        // ========================================
+
+                                        div {
+                                            class: "
+                                                absolute
+                                                left-0
+                                                top-full
+                                                mt-1
+                                                z-50
+                                                w-64
+                                                bg-zinc-900
+                                                border
+                                                border-zinc-700
+                                                rounded-lg
+                                                shadow-2xl
+                                                overflow-hidden
+                                            ",
+
+                                            // --------------------------------
+                                            // PLAYER INFO
+                                            // --------------------------------
+
+                                            div {
+                                                class: "px-3 py-2 border-b border-zinc-800",
+
+                                                div {
+                                                    class: "text-white text-[10px] font-black truncate",
+                                                    "{player_name}"
+                                                }
+
+                                                div {
+                                                    class: "flex items-center gap-1 mt-1",
+
+                                                    span {
+                                                        class: "text-zinc-600 text-[8px] font-bold",
+                                                        "STEAMID"
+                                                    }
+
+                                                    span {
+                                                        class: "text-zinc-400 text-[9px] font-mono truncate flex-1",
+                                                        "{steamid}"
+                                                    }
+                                                }
+                                            }
+
+                                            // --------------------------------
+                                            // ACTIONS
+                                            // --------------------------------
+
+                                            div {
+                                                class: "p-1",
+
+                                                button {
+                                                    class: "
+                                                        w-full
+                                                        text-left
+                                                        px-3
+                                                        py-2
+                                                        rounded
+                                                        text-[10px]
+                                                        font-bold
+                                                        text-zinc-300
+                                                        hover:bg-zinc-800
+                                                        hover:text-white
+                                                    ",
+
+                                                    onclick: move |_| {
+                                                        on_command.call(
+                                                            format!("kickid {}", player_id)
+                                                        );
+
+                                                        context_player.set(None);
+                                                    },
+
+                                                    "KICK"
+                                                }
+
+                                                button {
+                                                    class: "
+                                                        w-full
+                                                        text-left
+                                                        px-3
+                                                        py-2
+                                                        rounded
+                                                        text-[10px]
+                                                        font-bold
+                                                        text-zinc-300
+                                                        hover:bg-zinc-800
+                                                        hover:text-white
+                                                    ",
+
+                                                    onclick: move |_| {
+                                                        on_command.call(
+                                                            format!("kill {}", player_id)
+                                                        );
+
+                                                        context_player.set(None);
+                                                    },
+
+                                                    "KILL"
+                                                }
+
+                                                // ----------------------------
+                                                // BAN
+                                                // ----------------------------
+
+                                                div {
+                                                    class: "mt-1 pt-1 border-t border-zinc-800",
+
+                                                    div {
+                                                        class: "px-3 pt-2 pb-1 text-[8px] font-black tracking-widest text-red-400",
+                                                        "BAN"
+                                                    }
+
+                                                    select {
+                                                        class: "
+                                                            w-full
+                                                            appearance-none
+                                                            bg-zinc-800
+                                                            text-white
+                                                            border
+                                                            border-zinc-700
+                                                            rounded
+                                                            px-2
+                                                            py-1
+                                                            text-sm
+                                                        ",
+                                                        style: "color-scheme: dark;",
+
+                                                        value: "{ban_duration()}",
+
+                                                        onchange: move |evt| {
+                                                            if let Ok(value) = evt.value().parse::<u32>() {
+                                                                ban_duration.set(value);
+                                                            }
+                                                        },
+
+                                                        option {
+                                                            value: "0",
+                                                            "Permanent"
+                                                        }
+
+                                                        option {
+                                                            value: "5",
+                                                            "5 minutes"
+                                                        }
+
+                                                        option {
+                                                            value: "30",
+                                                            "30 minutes"
+                                                        }
+
+                                                        option {
+                                                            value: "60",
+                                                            "1 hour"
+                                                        }
+
+                                                        option {
+                                                            value: "1440",
+                                                            "1 day"
+                                                        }
+
+                                                        option {
+                                                            value: "10080",
+                                                            "1 week"
+                                                        }
+                                                    }
+
+                                                    button {
+                                                        class: "
+                                                            w-full
+                                                            mt-2
+                                                            px-3
+                                                            py-2
+                                                            bg-red-900/70
+                                                            hover:bg-red-800
+                                                            text-white
+                                                            rounded
+                                                            text-sm
+                                                            font-medium
+                                                        ",
+
+                                                        onclick: move |_| {
+                                                            let duration = ban_duration();
+
+                                                            on_command.call(
+                                                                format!(
+                                                                    "banid {} {}",
+                                                                    duration,
+                                                                    steamid
+                                                                )
+                                                            );
+
+                                                            context_player.set(None);
+                                                        },
+
+                                                        "BAN PLAYER"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 
