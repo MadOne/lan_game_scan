@@ -153,7 +153,7 @@ fn parse_a2s_info(
     let _protocol = payload[0];
     payload = &payload[1..];
 
-    let name = read_cstring(&mut payload)?;
+    let mut name = read_cstring(&mut payload)?;
     let map = read_cstring(&mut payload)?;
     let _folder = read_cstring(&mut payload)?;
     let game = read_cstring(&mut payload)?;
@@ -174,16 +174,11 @@ fn parse_a2s_info(
     let bots = payload[2];
     payload = &payload[3..];
 
-    // Skip environment + server_type.
-    if payload.len() < 2 {
-        return None;
-    }
+    let server_type = payload[0];
+    let _environment = payload[1];
+    let visibility = payload[2];
 
-    payload = &payload[2..];
-
-    let visibility = *payload.first()?;
-
-    let game_name = match server_id {
+    let mut game_name = match server_id {
         10 => "CS".to_string(),
         20 => "TFC".to_string(),
         30 => "DoD".to_string(),
@@ -193,6 +188,19 @@ fn parse_a2s_info(
         730 => "CS2".to_string(),
         _ => game,
     };
+    log::debug!(
+        target: "lan_scan::parser",
+        "A2S_INFO {}: server_type={:02X} ({:?}), environment={:02X}, visibility={}",
+        addr,
+        server_type,
+        server_type as char,
+        _environment,
+        visibility
+    );
+    if server_type == b'p' {
+        game_name.push_str(" TV");
+        name = format!("SourceTV - {name}");
+    }
 
     let protocol = match server_id {
         730 => ServerProtocol::Source2,
