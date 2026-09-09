@@ -1009,6 +1009,18 @@ video {
   max-width: 20rem;
 }
 
+.max-w-\[400px\] {
+  max-width: 400px;
+}
+
+.max-w-\[420px\] {
+  max-width: 420px;
+}
+
+.max-w-2xl {
+  max-width: 42rem;
+}
+
 .flex-1 {
   flex: 1 1 0%;
 }
@@ -1214,6 +1226,10 @@ video {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.text-ellipsis {
+  text-overflow: ellipsis;
 }
 
 .whitespace-normal {
@@ -2282,6 +2298,11 @@ video {
 .focus\:border-zinc-500:focus {
   --tw-border-opacity: 1;
   border-color: rgb(113 113 122 / var(--tw-border-opacity, 1));
+}
+
+.focus\:border-zinc-600:focus {
+  --tw-border-opacity: 1;
+  border-color: rgb(82 82 91 / var(--tw-border-opacity, 1));
 }
 
 .focus\:ring-0:focus {

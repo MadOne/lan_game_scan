@@ -66,7 +66,7 @@ impl AppLogEntry {
 
         let parts: Vec<&str> = self.target.split("::").collect();
 
-        if parts.len() <= 3 {
+        if parts.len() <= 2 {
             return self.target.clone();
         }
 
