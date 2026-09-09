@@ -2,17 +2,14 @@ use cbz_rcon::RconClient;
 use std::io::{self, Write};
 use std::net::SocketAddr;
 
-fn prompt(name: &str) -> String {
+fn prompt(name: &str) -> io::Result<String> {
     let mut line = String::new();
 
-    println!("{}", name);
-    io::stdout().flush().unwrap();
+    println!("{name}");
+    io::stdout().flush()?;
+    io::stdin().read_line(&mut line)?;
 
-    io::stdin()
-        .read_line(&mut line)
-        .expect("Error: Could not read a line");
-
-    line.trim().to_string()
+    Ok(line.trim().to_string())
 }
 
 #[tokio::main]
@@ -28,15 +25,27 @@ async fn main() {
     "
     );
 
-    let password = prompt("rcon password: ");
+    let password = match prompt("rcon password: ") {
+        Ok(password) => password,
+        Err(error) => {
+            eprintln!("Error reading password: {error}");
+            return;
+        }
+    };
 
     let mut client = loop {
-        let addr_string = prompt("ip:port (z.B.: 10.10.1.99:27016): ");
+        let addr_string = match prompt("ip:port (z.B.: 10.10.1.99:27016): ") {
+            Ok(addr) => addr,
+            Err(error) => {
+                eprintln!("Error reading address: {error}");
+                return;
+            }
+        };
 
         let addr: SocketAddr = match addr_string.parse() {
             Ok(addr) => addr,
             Err(error) => {
-                println!("Invalid address: {}", error);
+                println!("Invalid address: {error}");
                 continue;
             }
         };
@@ -50,13 +59,19 @@ async fn main() {
             }
 
             Err(error) => {
-                println!("Connection failed: {}", error);
+                println!("Connection failed: {error}");
             }
         }
     };
 
     loop {
-        let input = prompt("rcon command: ");
+        let input = match prompt("rcon command: ") {
+            Ok(input) => input,
+            Err(error) => {
+                eprintln!("Error reading command: {error}");
+                break;
+            }
+        };
 
         if input == "exit" || input == "quit" {
             break;
@@ -64,11 +79,11 @@ async fn main() {
 
         match client.command(&input).await {
             Ok(response) => {
-                println!("response: {}", response);
+                println!("response: {response}");
             }
 
             Err(error) => {
-                println!("RCON error: {}", error);
+                println!("RCON error: {error}");
                 break;
             }
         }

@@ -23,7 +23,10 @@ async fn main() {
         live_log.port()
     );
 
-    let mut receiver = live_log.take_receiver().unwrap();
+    let Some(mut receiver) = live_log.take_receiver() else {
+        eprintln!("Error: Could not obtain live log receiver");
+        return;
+    };
 
     while let Some(parsed) = receiver.recv().await {
         if !visible_logs.contains(&parsed.log_type) {

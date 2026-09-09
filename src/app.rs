@@ -85,9 +85,7 @@ pub fn App() -> Element {
     // ------------------------------------------------------------
 
     use_future(|| async {
-        let addr: SocketAddr = "0.0.0.0:7131"
-            .parse()
-            .expect("Invalid MatchZy HTTP address");
+        let addr = SocketAddr::from(([0, 0, 0, 0], 7131));
 
         start_matchzy_server(addr).await;
     });
@@ -137,10 +135,7 @@ pub fn App() -> Element {
         }
 
         while let Some(update) = ui_rx.recv().await {
-            let now = SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_secs() as i64;
+            let now = SystemTime::now();
 
             state.servers.with_mut(|map| match update {
                 ServerUpdate::FullServer(mut incoming) => {
@@ -203,30 +198,33 @@ pub fn App() -> Element {
 
             tokio::time::sleep(Duration::from_secs(6)).await;
 
-            let now = SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_secs() as i64;
+            let now = SystemTime::now();
 
-            let timeout = 15;
+            let timeout = Duration::from_secs(15);
             let mut to_ping = vec![];
 
             state.servers.with_mut(|map| {
                 map.retain(|_addr, srv| {
-                    let elapsed = now - srv.last_update.unwrap_or(0);
+                    let elapsed = srv
+                        .last_update
+                        .and_then(|last_update| now.duration_since(last_update).ok())
+                        .unwrap_or(Duration::MAX);
 
                     elapsed < timeout || srv.is_favorite
                 });
 
                 for srv in map.values_mut() {
                     if srv.is_favorite {
-                        let elapsed = now - srv.last_update.unwrap_or(0);
+                        let elapsed = srv
+                            .last_update
+                            .and_then(|last_update| now.duration_since(last_update).ok())
+                            .unwrap_or(Duration::MAX);
 
                         if elapsed >= timeout {
                             srv.scanned.ping = None;
                         }
 
-                        if elapsed >= 6 {
+                        if elapsed >= Duration::from_secs(6) {
                             to_ping.push(srv.scanned.socket_addr);
                         }
                     }

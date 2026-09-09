@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::{collections::HashMap, time::SystemTime};
 
 use dioxus::prelude::*;
 use lan_scan::{ScanCommand, ScannedServer};
@@ -23,5 +23,5 @@ pub struct GameServer {
     pub rcon_autologin: bool,
     pub is_favorite: bool,
     #[serde(skip)]
-    pub last_update: Option<i64>,
+    pub last_update: Option<SystemTime>,
 }

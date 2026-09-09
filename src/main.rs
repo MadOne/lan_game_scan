@@ -38,14 +38,25 @@ fn main() {
 
     let icon_bytes = include_bytes!("../assets/icon.png");
 
-    let icon = image::load_from_memory(icon_bytes)
-        .map(|img| {
+    let icon = match image::load_from_memory(icon_bytes) {
+        Ok(img) => {
             let rgba = img.to_rgba8();
             let (width, height) = rgba.dimensions();
 
-            Icon::from_rgba(rgba.into_raw(), width, height).unwrap()
-        })
-        .ok();
+            match Icon::from_rgba(rgba.into_raw(), width, height) {
+                Ok(icon) => Some(icon),
+                Err(error) => {
+                    tracing::error!("[UI] Failed to create application icon: {}", error);
+                    None
+                }
+            }
+        }
+
+        Err(error) => {
+            tracing::error!("[UI] Failed to load application icon: {}", error);
+            None
+        }
+    };
 
     let window = WindowBuilder::new()
         .with_title("LAN GAME SCAN")

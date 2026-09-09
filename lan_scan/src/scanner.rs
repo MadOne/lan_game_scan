@@ -9,6 +9,7 @@ use tokio::time::interval;
 
 use crate::{parser, ParseResult, PendingQuery, ScanCommand, ServerUpdate, SplitBuffer};
 
+const MAX_PING: Duration = Duration::from_secs(1);
 pub struct Scanner {
     socket: Arc<UdpSocket>,
     cmd_rx: Receiver<ScanCommand>,
@@ -63,18 +64,42 @@ impl Scanner {
         loop {
             tokio::select! {
                 // 1. Incoming command from the UI/Controller
-                Some(_cmd) = self.cmd_rx.recv() => {
-                    //self.handle_command(cmd).await;
+                command = self.cmd_rx.recv() => {
+                    match command {
+                    Some(command) => {
+                        self.handle_command(command).await;
+                    }
+
+                        None => {
+                            log::debug!(
+                                target: "lan_scan::scanner",
+                                "Scanner command channel closed"
+                            );
+                            break;
+                        }
+                    }
                 }
 
                 // 2. Incoming UDP packet response from a game server
-                Ok((len, addr)) = self.socket.recv_from(&mut recv_buf) => {
-                    self.handle_socket_data(&recv_buf[..len], addr).await;
+                result = self.socket.recv_from(&mut recv_buf) => {
+                    match result {
+                        Ok((len, addr)) => {
+                            self.handle_socket_data(&recv_buf[..len], addr).await;
+                        }
+
+                        Err(error) => {
+                            log::error!(
+                                target: "lan_scan::scanner",
+                                "UDP receive failed: {}",
+                                error
+                            );
+                        }
+                    }
                 }
 
                 // 3. Periodic timer to prune timed-out requests or retry missing challenges
                 _ = cleanup_ticker.tick() => {
-                    //self.handle_timeouts().await;
+                    self.handle_timeouts().await;
                 }
                 // 4. Automatic background scanning
                 _ = scan_ticker.tick() => {
@@ -202,10 +227,7 @@ impl Scanner {
         let mut data_vec = data.to_vec();
 
         // Calculate RTT ping duration
-        let mut ping_ms = self.calculate_ping(addr);
-        if ping_ms == None {
-            ping_ms = Some(999);
-        }
+        let ping_ms = self.calculate_ping(addr);
 
         // Execute pure parser logic
         match parser::parse(&mut data_vec, addr, ping_ms, &mut self.split_cache) {
@@ -263,7 +285,26 @@ impl Scanner {
         for addr in expired {
             self.pending_queries.remove(&addr);
             self.ping_tracker.remove(&addr);
-            let _ = self.ui_tx.send(ServerUpdate::Failed { addr }).await;
+            //self.challenges.remove(&addr);
+
+            self.split_cache
+                .retain(|(split_addr, _), _| *split_addr != addr);
+
+            log::debug!(
+                target: "lan_scan::scanner",
+                "Query timed out for {} after {} retries",
+                addr,
+                max_retries
+            );
+
+            if let Err(error) = self.ui_tx.send(ServerUpdate::Failed { addr }).await {
+                log::error!(
+                    target: "lan_scan::scanner",
+                    "Failed to send timeout update for {}: {}",
+                    addr,
+                    error
+                );
+            }
         }
 
         // Resend query for retried servers
@@ -276,21 +317,31 @@ impl Scanner {
 
     // 1. Helper function or method on your struct:
     fn calculate_ping(&mut self, addr: SocketAddr) -> Option<u16> {
-        // Exact Unicast Match
+        // Exact unicast match
         if let Some(start) = self.ping_tracker.remove(&addr) {
-            return Some(start.elapsed().as_millis().max(1) as u16);
+            let elapsed = start.elapsed();
+
+            if elapsed <= MAX_PING {
+                return Some(elapsed.as_millis().clamp(1, u16::MAX as u128) as u16);
+            }
+
+            return None;
         }
 
-        // Broadcast Fallback: Match if key IP is Broadcast AND Port matches
+        // Broadcast fallback
         let matching_key = self
             .ping_tracker
             .keys()
-            .find(|k| k.port() == addr.port() && self.is_broadcast_ip(&k.ip()))
+            .find(|key| key.port() == addr.port() && self.is_broadcast_ip(&key.ip()))
             .cloned();
 
         if let Some(key) = matching_key {
             if let Some(start) = self.ping_tracker.get(&key) {
-                return Some(start.elapsed().as_millis().max(1) as u16);
+                let elapsed = start.elapsed();
+
+                if elapsed <= MAX_PING {
+                    return Some(elapsed.as_millis().clamp(1, u16::MAX as u128) as u16);
+                }
             }
         }
 

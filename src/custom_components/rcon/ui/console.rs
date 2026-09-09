@@ -13,6 +13,7 @@ use crate::{
 };
 use cbz_rcon::RconStatus;
 use dioxus::prelude::*;
+use lan_scan::ServerProtocol;
 use live_log::parser::LogType;
 use std::{collections::HashSet, net::SocketAddr};
 
@@ -83,29 +84,35 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
     // -------------------------------------------------------------------------
 
     let server = state.servers.read().get(&addr).cloned();
-    //let server_unwrapped = server.expect("Server not found");
+
+    let Some(server) = server.as_ref() else {
+        tracing::error!("RCON server {} no longer exists in server list", addr);
+
+        return rsx! {
+            div {
+                class: "h-full flex items-center justify-center bg-zinc-950 text-zinc-600",
+                "Server no longer available."
+            }
+        };
+    };
 
     let hostname = server
-        .as_ref()
-        .and_then(|server| server.scanned.hostname.clone())
+        .scanned
+        .hostname
+        .clone()
         .unwrap_or_else(|| "UNKNOWN SERVER".to_string());
 
     let map = server
-        .as_ref()
-        .and_then(|server| server.scanned.map.clone())
+        .scanned
+        .map
+        .clone()
         .unwrap_or_else(|| "UNKNOWN".to_string());
 
-    let player_count = server
-        .as_ref()
-        .and_then(|server| server.scanned.players)
-        .unwrap_or(0);
+    let player_count = server.scanned.players.unwrap_or(0);
 
-    let player_max = server
-        .as_ref()
-        .and_then(|server| server.scanned.players_max)
-        .unwrap_or(0);
+    let player_max = server.scanned.players_max.unwrap_or(0);
 
-    let protocol = server.as_ref().unwrap().scanned.protocol;
+    let protocol = server.scanned.protocol;
 
     let status = status_signal();
 
@@ -182,19 +189,19 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
                             class: "bg-indigo-600 text-white px-3 py-1 rounded text-[10px] font-bold",
 
                             onclick: move |_| {
-                            let password = pw_input();
+                                let password = pw_input();
 
-                            if password.is_empty() {
-                                return;
-                            }
+                                if password.is_empty() {
+                                    return;
+                                }
 
-                            spawn(async move {
-                                state
-                                    .rcon_manager
-                                    .connect(addr, password, protocol)
-                                    .await;
-                            });
-                        },
+                                spawn(async move {
+                                    state
+                                        .rcon_manager
+                                        .connect(addr, password, protocol)
+                                        .await;
+                                });
+                            },
 
                             "LOGIN"
                         }
@@ -395,16 +402,22 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
 
                                         spawn(async move {
                                             let mut client = client.lock().await;
+
                                             tracing::debug!(">>> SEND: {}", command);
+
                                             match client.command(&command).await {
                                                 Ok(response) => {
-                                                    tracing::debug!("<<< RESPONSE FOR '{}': {:?}", command, response);
+                                                    tracing::debug!(
+                                                        "<<< RESPONSE FOR '{}': {:?}",
+                                                        command,
+                                                        response
+                                                    );
+
                                                     logs.write().push(
                                                         RconLogEvent::RconResponse(
                                                             response,
                                                         ),
                                                     );
-
                                                 }
 
                                                 Err(error) => {
