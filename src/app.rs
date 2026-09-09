@@ -1,3 +1,7 @@
+use crate::app_log;
+
+use crate::app_log::app_log_store;
+use crate::custom_components::applicatiton_logs::ApplicationLogs;
 use crate::custom_components::matchzy::matchzy::start_matchzy_server;
 use crate::custom_components::server::Favourites;
 use crate::custom_components::server::LAN;
@@ -34,6 +38,9 @@ pub enum Route {
 
     #[route("/rcon")]
     RconTab {},
+
+    #[route("/logs")]
+ApplicationLogs {},
 }
 
 #[derive(Clone)]
@@ -236,7 +243,17 @@ pub fn App() -> Element {
             }
         }
     });
+    let mut app_log_entries = use_signal(|| app_log_store().entries());
 
+    use_context_provider(|| app_log_entries);
+
+    use_future(move || async move {
+        loop {
+            app_log_entries.set(app_log_store().entries());
+
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    });
     rsx! {
         document::Link {
             rel: "icon",

@@ -1,35 +1,41 @@
-// -----------------------------------------------------------------------------
-// main.rs
-// -----------------------------------------------------------------------------
-
-#![allow(non_snake_case)]
-
 mod app;
-mod network;
-//mod components;
+mod app_log;
 mod custom_components;
 mod misc;
+mod network;
 mod rcon_manager;
 mod state;
 
 use crate::app::{App, ShutdownSignal};
-
 use dioxus::desktop::tao::window::Icon;
 use dioxus::desktop::{tao, Config, LogicalSize, WindowBuilder, WindowCloseBehaviour};
 use dioxus::prelude::*;
+use tracing_subscriber::prelude::*;
 
 use std::sync::Arc;
 use tokio::sync::Notify;
-
-// --- ROUTING ---
-
 #[derive(PartialEq, Clone, Copy)]
 enum TableMode {
     Lan,
     Fav,
 }
-
 fn main() {
+    // -------------------------------------------------------------------------
+    // LOGGING
+    // -------------------------------------------------------------------------
+
+    let app_log = app_log::init_app_log();
+
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer().with_ansi(true))
+        .with(app_log::AppLogLayer::new(app_log))
+        .with(tracing_subscriber::filter::LevelFilter::DEBUG)
+        .init();
+
+    // -------------------------------------------------------------------------
+    // WINDOW
+    // -------------------------------------------------------------------------
+
     let icon_bytes = include_bytes!("../assets/icon.png");
 
     let icon = image::load_from_memory(icon_bytes)
@@ -43,11 +49,12 @@ fn main() {
 
     let window = WindowBuilder::new()
         .with_title("LAN GAME SCAN")
-        //desktop
-        //.with_inner_size(LogicalSize::new(1200.0, 800.0))
-        //mobile
         .with_inner_size(LogicalSize::new(360.0, 800.0))
         .with_window_icon(icon);
+
+    // -------------------------------------------------------------------------
+    // SHUTDOWN
+    // -------------------------------------------------------------------------
 
     let shutdown = Arc::new(Notify::new());
     let shutdown_handler = shutdown.clone();
@@ -66,6 +73,10 @@ fn main() {
                 shutdown_handler.notify_one();
             }
         });
+
+    // -------------------------------------------------------------------------
+    // LAUNCH
+    // -------------------------------------------------------------------------
 
     LaunchBuilder::desktop()
         .with_context(ShutdownSignal(shutdown))

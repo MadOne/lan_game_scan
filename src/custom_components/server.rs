@@ -1,8 +1,9 @@
 use crate::app::Route;
 use crate::misc::{connect_to_server, save_to_disk};
+use crate::TableMode;
 
+use crate::state::AppState;
 use crate::state::GameServer;
-use crate::{state::AppState, TableMode};
 use cbz_rcon::RconStatus;
 use dioxus::prelude::*;
 use lan_scan::{PendingQuery, PlayerInfo, ScanCommand, ScannedServer, ServerProtocol};

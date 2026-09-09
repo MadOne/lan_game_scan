@@ -33,13 +33,15 @@ pub fn Navbar() -> Element {
         format!("{} text-zinc-500 hover:text-zinc-300", base)
     };
 
+    let logs_cls = if matches!(route, Route::ApplicationLogs {}) {
+        format!("{} bg-zinc-800 text-white shadow-inner", base)
+    } else {
+        format!("{} text-zinc-500 hover:text-zinc-300", base)
+    };
+
     rsx! {
         div {
             class: "relative flex flex-col h-full",
-
-            // ========================================================
-            // HEADER
-            // ========================================================
 
             header {
                 class: "flex items-center justify-between px-6 py-4 bg-zinc-900 border-b border-zinc-800 shadow-2xl z-30",
@@ -88,22 +90,20 @@ pub fn Navbar() -> Element {
                             }
                         }
                     }
+
+                    Link {
+                        to: Route::ApplicationLogs {},
+                        class: "{logs_cls}",
+                        "▤ Logs"
+                    }
                 }
             }
-
-            // ========================================================
-            // CONTENT
-            // ========================================================
 
             main {
                 class: "flex-1 overflow-hidden",
 
                 Outlet::<Route> {}
             }
-
-            // ========================================================
-            // GLOBAL RCON ATTENTION
-            // ========================================================
 
             RconAttentionIndicator {}
         }
