@@ -21,7 +21,7 @@ pub enum Team {
     Unknown,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RconPlayers {
     players: HashMap<u16, Player>,
 }

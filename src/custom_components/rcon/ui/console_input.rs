@@ -1,12 +1,13 @@
-use crate::custom_components::cvar::{Cvar, CvarDatabase, CvarFlag};
+use crate::custom_components::{
+    code::RconState,
+    cvar::{Cvar, CvarFlag},
+};
 use dioxus::prelude::*;
 use std::collections::HashSet;
 
 // =============================================================================
 // CONSTANTS
 // =============================================================================
-
-const MAX_COMMAND_HISTORY: usize = 100;
 
 // =============================================================================
 // RCON COMMAND INPUT
@@ -15,15 +16,16 @@ const MAX_COMMAND_HISTORY: usize = 100;
 #[component]
 #[component]
 pub fn RconCommandInput(
-    cvar_db: Signal<Option<CvarDatabase>>,
+    rcon_state: RconState,
     cvar_filters: Signal<HashSet<CvarFlag>>,
-    command_history: Signal<Vec<String>>,
     on_command: EventHandler<String>,
 ) -> Element {
     let mut cmd_input = use_signal(String::new);
     let mut suggestions = use_signal(Vec::<Cvar>::new);
     let mut suggestion_index = use_signal(|| None::<usize>);
     let mut history_index = use_signal(|| None::<usize>);
+    let cvar_db = rcon_state.cvar_db();
+    let command_history = rcon_state.command_history();
 
     rsx! {
         div {
@@ -347,7 +349,7 @@ pub fn RconCommandInput(
                             suggestion_index.set(None);
                             history_index.set(None);
 
-                            add_to_command_history(&mut command_history, &cmd);
+                            rcon_state.add_command_to_history(cmd.clone());
 
                             on_command.call(cmd);
                         }
@@ -375,7 +377,7 @@ pub fn RconCommandInput(
                         suggestion_index.set(None);
                         history_index.set(None);
 
-                        add_to_command_history(&mut command_history, &cmd);
+                        rcon_state.add_command_to_history(cmd.clone());
 
                         on_command.call(cmd);
                     },
@@ -385,25 +387,4 @@ pub fn RconCommandInput(
             }
         }
     }
-}
-
-// =============================================================================
-// COMMAND HISTORY
-// =============================================================================
-
-fn add_to_command_history(command_history: &mut Signal<Vec<String>>, command: &str) {
-    command_history.with_mut(|history| {
-        // Don't add the same command twice in a row.
-        if history.last().is_some_and(|last| last == command) {
-            return;
-        }
-
-        history.push(command.to_string());
-
-        // Keep only the newest MAX_COMMAND_HISTORY entries.
-        if history.len() > MAX_COMMAND_HISTORY {
-            let excess = history.len() - MAX_COMMAND_HISTORY;
-            history.drain(0..excess);
-        }
-    });
 }

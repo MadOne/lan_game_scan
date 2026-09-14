@@ -10,6 +10,7 @@ use live_log::{
     http_catcher::LiveLog,
     parser::{LogEvent, ParsedLine, Team},
 };
+use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::{
     custom_components::{
@@ -25,57 +26,33 @@ pub enum RconLogEvent {
     RconResponse(String),
     Info(String),
 }
-
-pub struct RconSession {
-    pub addr: SocketAddr,
-
-    // -------------------------------------------------------------------------
-    // RCON connection
-    // -------------------------------------------------------------------------
-    pub client: Arc<tokio::sync::Mutex<RconClient>>,
-
-    // -------------------------------------------------------------------------
-    // Live log processing for this server
-    // -------------------------------------------------------------------------
-    pub live_log: Option<LiveLog>,
-    pub live_log_url: Option<String>,
-    pub matchzy_log_url: Option<String>,
-
-    // -------------------------------------------------------------------------
-    // Reactive session state
-    // -------------------------------------------------------------------------
-    pub logs: Signal<Vec<RconLogEvent>>,
-    pub status: Signal<RconStatus>,
-    pub players: Signal<RconPlayers>,
-    pub match_paused: Signal<bool>,
-    pub score: Signal<TeamScore>,
-    pub maps: Signal<Vec<String>>,
-    pub team_name_ct: Signal<String>,
-    pub team_name_t: Signal<String>,
-    pub max_rounds: Signal<u8>,
-    pub need_attention: Signal<bool>,
-    live_log_task: Option<Task>,
-    pub cvar_db: Signal<Option<CvarDatabase>>,
-    pub command_history: Signal<Vec<String>>,
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RconState {
+    logs: Signal<Vec<RconLogEvent>>,
+    status: Signal<RconStatus>,
+    players: Signal<RconPlayers>,
+    match_paused: Signal<bool>,
+    score: Signal<TeamScore>,
+    maps: Signal<Vec<String>>,
+    team_name_ct: Signal<String>,
+    team_name_t: Signal<String>,
+    max_rounds: Signal<u8>,
+    need_attention: Signal<bool>,
+    cvar_db: Signal<Option<CvarDatabase>>,
+    command_history: Signal<Vec<String>>,
+    pub sender: Signal<Sender<StateUpdate>>,
+    receiver: Signal<Receiver<StateUpdate>>,
 }
 
-impl RconSession {
-    pub fn new(addr: SocketAddr, password: String, protocol: RconProtocol) -> Self {
-        let client = Arc::new(tokio::sync::Mutex::new(RconClient::new(
-            addr, password, protocol,
-        )));
+impl RconState {
+    pub fn new() -> RconState {
+        let (sender, receiver) = tokio::sync::mpsc::channel::<StateUpdate>(256);
 
-        Self {
-            addr,
-            client,
-            live_log: None,
-
+        RconState {
             logs: Signal::new_in_scope(Vec::new(), ScopeId::APP),
             status: Signal::new_in_scope(RconStatus::Disconnected, ScopeId::APP),
             players: Signal::new_in_scope(RconPlayers::new(), ScopeId::APP),
-
             match_paused: Signal::new_in_scope(false, ScopeId::APP),
-
             score: Signal::new_in_scope(
                 TeamScore {
                     ct: 0,
@@ -84,21 +61,236 @@ impl RconSession {
                 },
                 ScopeId::APP,
             ),
-
             maps: Signal::new_in_scope(Vec::new(), ScopeId::APP),
-
             team_name_ct: Signal::new_in_scope("TeamA".to_string(), ScopeId::APP),
             team_name_t: Signal::new_in_scope(String::new(), ScopeId::APP),
-
             max_rounds: Signal::new_in_scope(0, ScopeId::APP),
             need_attention: Signal::new_in_scope(false, ScopeId::APP),
+            cvar_db: Signal::new_in_scope(None, ScopeId::APP),
+            command_history: Signal::new_in_scope(Vec::new(), ScopeId::APP),
+            sender: Signal::new_in_scope(sender, ScopeId::APP),
+            receiver: Signal::new_in_scope(receiver, ScopeId::APP),
+        }
+    }
+    pub async fn run(&mut self) {
+        loop {
+            let update = {
+                let mut receiver = self.receiver.write();
+                receiver.recv().await
+            };
 
+            let Some(update) = update else {
+                break;
+            };
+
+            self.update(update);
+        }
+    }
+
+    pub fn update(&self, update: StateUpdate) {
+        match update {
+            StateUpdate::Log(rcon_log_event) => {
+                let mut logs = self.logs;
+                logs.write().push(rcon_log_event);
+            }
+
+            StateUpdate::LogEvent(parsed) => {
+                let mut logs = self.logs;
+                logs.write().push(RconLogEvent::LiveLog(parsed.clone()));
+
+                match &parsed.event {
+                    LogEvent::TeamSwitch { player, .. } => {
+                        let mut players = self.players;
+                        players.write().update_with_team_switch(player);
+                    }
+
+                    LogEvent::RoundStats { roundstats } => {
+                        let mut players = self.players;
+                        players.write().update_with_roundstats(roundstats);
+
+                        let mut score = self.score;
+                        score.write().update_with_roundstats(roundstats);
+                    }
+
+                    LogEvent::ScoreUpdate { rounds, .. } => {
+                        let mut score = self.score;
+                        score.write().update_with_score_update(*rounds);
+                    }
+
+                    LogEvent::MatchStatus {
+                        team,
+                        team_name: Some(team_name),
+                    } => match team {
+                        Team::CT => {
+                            let mut team_name_ct = self.team_name_ct;
+                            team_name_ct.set(team_name.clone());
+                        }
+
+                        Team::Terrorist => {
+                            let mut team_name_t = self.team_name_t;
+                            team_name_t.set(team_name.clone());
+                        }
+
+                        _ => {}
+                    },
+
+                    LogEvent::Technical { name, action } if name == "Match" => {
+                        match action.as_str() {
+                            "Pause Enabled" => {
+                                let mut match_paused = self.match_paused;
+                                match_paused.set(true);
+                            }
+
+                            "Pause Disabled" => {
+                                let mut match_paused = self.match_paused;
+                                match_paused.set(false);
+                            }
+
+                            _ => {}
+                        }
+                    }
+
+                    LogEvent::ServerCvar { name, value } => {
+                        if name == "mp_maxrounds" {
+                            let mut max_rounds = self.max_rounds;
+                            max_rounds.set(value.parse().unwrap_or(0));
+                        }
+
+                        let mut cvar_db = self.cvar_db;
+
+                        {
+                            let mut cvar_db_guard = cvar_db.write();
+
+                            if let Some(db) = cvar_db_guard.as_mut() {
+                                db.update(name, value);
+                            }
+                        }
+                    }
+
+                    LogEvent::Chat { .. } => match is_command(&parsed.event) {
+                        Some(AdminCommand::Admin) => {
+                            let mut attention = self.need_attention;
+                            attention.set(true);
+                        }
+
+                        Some(AdminCommand::Clear) => {
+                            let mut attention = self.need_attention;
+                            attention.set(false);
+                        }
+
+                        _ => {}
+                    },
+
+                    _ => {}
+                }
+            }
+
+            StateUpdate::CommandHistory(command) => {
+                let mut history = self.command_history;
+                history.write().push(command);
+            }
+        }
+    }
+
+    pub fn push_log(&self, event: RconLogEvent) {
+        let mut logs = self.logs;
+        logs.write().push(event);
+    }
+    pub fn add_command_to_history(&self, command: String) {
+        let sender = self.sender.read().clone();
+
+        spawn(async move {
+            if sender
+                .send(StateUpdate::CommandHistory(command))
+                .await
+                .is_err()
+            {
+                tracing::error!("Failed to update command history");
+            }
+        });
+    }
+    pub fn logs(&self) -> ReadSignal<Vec<RconLogEvent>> {
+        self.logs.into()
+    }
+    pub fn status(&self) -> ReadSignal<RconStatus> {
+        self.status.into()
+    }
+    pub fn players(&self) -> ReadSignal<RconPlayers> {
+        self.players.into()
+    }
+    pub fn score(&self) -> ReadSignal<TeamScore> {
+        self.score.into()
+    }
+    pub fn maps(&self) -> ReadSignal<Vec<String>> {
+        self.maps.into()
+    }
+
+    pub fn team_name_ct(&self) -> ReadSignal<String> {
+        self.team_name_ct.into()
+    }
+
+    pub fn team_name_t(&self) -> ReadSignal<String> {
+        self.team_name_t.into()
+    }
+
+    pub fn need_attention(&self) -> ReadSignal<bool> {
+        self.need_attention.into()
+    }
+
+    pub fn cvar_db(&self) -> ReadSignal<Option<CvarDatabase>> {
+        self.cvar_db.into()
+    }
+
+    pub fn command_history(&self) -> ReadSignal<Vec<String>> {
+        self.command_history.into()
+    }
+
+    pub fn match_paused(&self) -> ReadSignal<bool> {
+        self.match_paused.into()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum StateUpdate {
+    Log(RconLogEvent),
+    CommandHistory(String),
+    LogEvent(ParsedLine),
+}
+pub struct RconSession {
+    pub addr: SocketAddr,
+
+    // -------------------------------------------------------------------------
+    // RCON connection
+    // -------------------------------------------------------------------------
+    pub client: Arc<tokio::sync::Mutex<RconClient>>,
+    pub live_log: Option<LiveLog>,
+    live_log_task: Option<Task>,
+    pub live_log_url: Option<String>,
+    pub matchzy_log_url: Option<String>,
+    pub state: RconState,
+}
+
+impl RconSession {
+    pub fn new(addr: SocketAddr, password: String, protocol: RconProtocol) -> Self {
+        let client = Arc::new(tokio::sync::Mutex::new(RconClient::new(
+            addr, password, protocol,
+        )));
+        let state = RconState::new();
+
+        spawn({
+            let mut state = state;
+            async move {
+                state.run().await;
+            }
+        });
+        Self {
+            addr,
+            client,
+            live_log: None,
             live_log_url: None,
             matchzy_log_url: None,
             live_log_task: None,
-
-            cvar_db: Signal::new_in_scope(None, ScopeId::APP),
-            command_history: Signal::new_in_scope(Vec::new(), ScopeId::APP),
+            state,
         }
     }
 
@@ -219,8 +411,7 @@ impl RconSession {
     // =========================================================================
 
     fn push_log(&self, event: RconLogEvent) {
-        let mut logs = self.logs;
-        logs.write().push(event);
+        self.state.push_log(event);
     }
 
     // =========================================================================
@@ -228,7 +419,7 @@ impl RconSession {
     // =========================================================================
 
     async fn send_rcon_command(
-        &self,
+        &mut self,
         command: &str,
         success_prefix: &str,
         error_prefix: &str,
@@ -237,7 +428,7 @@ impl RconSession {
 
         match client.command(command).await {
             Ok(response) => {
-                self.push_log(RconLogEvent::RconResponse(format!(
+                self.state.push_log(RconLogEvent::RconResponse(format!(
                     "{}{}",
                     success_prefix, response
                 )));
@@ -246,7 +437,8 @@ impl RconSession {
             }
 
             Err(error) => {
-                self.push_log(RconLogEvent::Info(format!("{}{}", error_prefix, error)));
+                self.state
+                    .push_log(RconLogEvent::Info(format!("{}{}", error_prefix, error)));
 
                 false
             }
@@ -260,145 +452,44 @@ impl RconSession {
     async fn process_live_log(
         mut receiver: tokio::sync::mpsc::Receiver<ParsedLine>,
         client: Arc<tokio::sync::Mutex<RconClient>>,
-        mut logs: Signal<Vec<RconLogEvent>>,
-        mut players: Signal<RconPlayers>,
-        mut match_paused: Signal<bool>,
-        mut score: Signal<TeamScore>,
-        mut team_name_ct: Signal<String>,
-        mut team_name_t: Signal<String>,
-        mut max_rounds: Signal<u8>,
-        mut need_attention: Signal<bool>,
-        mut cvar_db: Signal<Option<CvarDatabase>>,
+        rcon_state: RconState,
     ) {
+        let sender = rcon_state.sender.read().clone();
+
         while let Some(parsed) = receiver.recv().await {
-            logs.write().push(RconLogEvent::LiveLog(parsed.clone()));
+            if sender
+                .send(StateUpdate::LogEvent(parsed.clone()))
+                .await
+                .is_err()
+            {
+                tracing::error!("process_live_log: RconState receiver dropped");
+                break;
+            }
 
-            match &parsed.event {
-                // -----------------------------------------------------------------
-                // Player changed team
-                //
-                // NEW:
-                // TeamSwitch {
-                //     player: Player,
-                //     from: Team,
-                // }
-                // -----------------------------------------------------------------
-                LogEvent::TeamSwitch { player, .. } => {
-                    players.write().update_with_team_switch(player);
+            match is_command(&parsed.event) {
+                Some(AdminCommand::Pause) => {
+                    let client = client.clone();
+
+                    spawn(async move {
+                        let mut client = client.lock().await;
+
+                        if let Err(error) = client.command("mp_pause_match").await {
+                            tracing::error!("Failed to pause match: {}", error);
+                        }
+                    });
                 }
 
-                // -----------------------------------------------------------------
-                // Round stats
-                //
-                // RSPlayer belongs ONLY to RoundStats.
-                // RconPlayers can consume the roundstats structure itself.
-                // -----------------------------------------------------------------
-                LogEvent::RoundStats { roundstats } => {
-                    players.write().update_with_roundstats(roundstats);
+                Some(AdminCommand::UnPause) => {
+                    let client = client.clone();
 
-                    score.write().update_with_roundstats(roundstats);
+                    spawn(async move {
+                        let mut client = client.lock().await;
+
+                        if let Err(error) = client.command("mp_unpause_match").await {
+                            tracing::error!("Failed to unpause match: {}", error);
+                        }
+                    });
                 }
-
-                // -----------------------------------------------------------------
-                // Score update
-                // -----------------------------------------------------------------
-                LogEvent::ScoreUpdate { rounds, .. } => {
-                    score.write().update_with_score_update(*rounds);
-                }
-
-                // -----------------------------------------------------------------
-                // Match status
-                // -----------------------------------------------------------------
-                LogEvent::MatchStatus {
-                    team,
-                    team_name: Some(team_name),
-                } => match team {
-                    Team::CT => {
-                        team_name_ct.set(team_name.clone());
-                    }
-
-                    Team::Terrorist => {
-                        team_name_t.set(team_name.clone());
-                    }
-
-                    _ => {}
-                },
-
-                // -----------------------------------------------------------------
-                // Match pause
-                // -----------------------------------------------------------------
-                LogEvent::Technical { name, action } if name == "Match" => match action.as_str() {
-                    "Pause Enabled" => {
-                        match_paused.set(true);
-                    }
-
-                    "Pause Disabled" => {
-                        match_paused.set(false);
-                    }
-
-                    _ => {}
-                },
-
-                // -----------------------------------------------------------------
-                // Maximum rounds
-                // -----------------------------------------------------------------
-                LogEvent::ServerCvar { name, value } => {
-                    if name == "mp_maxrounds" {
-                        max_rounds.set(value.parse().unwrap_or(0));
-                    }
-                    if let Some(db) = cvar_db.write().as_mut() {
-                        db.update(&name, &value);
-                    }
-                }
-
-                // -----------------------------------------------------------------
-                // Chat / admin commands
-                //
-                // Chat now contains:
-                //
-                // Chat {
-                //     player: Player,
-                //     msg,
-                //     is_team_chat,
-                // }
-                //
-                // is_command() handles the Player internally.
-                // -----------------------------------------------------------------
-                LogEvent::Chat { .. } => match is_command(&parsed.event) {
-                    Some(AdminCommand::Admin) => {
-                        need_attention.set(true);
-                    }
-
-                    Some(AdminCommand::Clear) => {
-                        need_attention.set(false);
-                    }
-
-                    Some(AdminCommand::Pause) => {
-                        let client = client.clone();
-
-                        spawn(async move {
-                            let mut client = client.lock().await;
-
-                            if let Err(error) = client.command("mp_pause_match").await {
-                                tracing::error!("Failed to pause match: {}", error);
-                            }
-                        });
-                    }
-
-                    Some(AdminCommand::UnPause) => {
-                        let client = client.clone();
-
-                        spawn(async move {
-                            let mut client = client.lock().await;
-
-                            if let Err(error) = client.command("mp_unpause_match").await {
-                                tracing::error!("Failed to pause match: {}", error);
-                            }
-                        });
-                    }
-
-                    None => {}
-                },
 
                 _ => {}
             }
@@ -451,7 +542,7 @@ impl RconSession {
             };
 
             let db = CvarDatabase::new(&cvarlist);
-            session.cvar_db.set(Some(db));
+            session.state.cvar_db.set(Some(db));
 
             if let Some(live_log) = session.live_log.as_mut() {
                 let receiver = match live_log.take_receiver() {
@@ -466,32 +557,11 @@ impl RconSession {
                         return None;
                     }
                 };
-                let logs = session.logs;
-                let players = session.players;
-                let match_paused = session.match_paused;
-                let score = session.score;
-                let team_name_ct = session.team_name_ct;
-                let team_name_t = session.team_name_t;
-                let max_rounds = session.max_rounds;
-                let need_attention = session.need_attention;
                 let client = session.client.clone();
-                let cvar_db = session.cvar_db;
+                let rcon_state = session.state.clone();
 
                 let live_log_task = spawn(async move {
-                    Self::process_live_log(
-                        receiver,
-                        client,
-                        logs,
-                        players,
-                        match_paused,
-                        score,
-                        team_name_ct,
-                        team_name_t,
-                        max_rounds,
-                        need_attention,
-                        cvar_db,
-                    )
-                    .await;
+                    Self::process_live_log(receiver, client, rcon_state).await;
                 });
                 session.live_log_task = Some(live_log_task);
             }
@@ -502,7 +572,8 @@ impl RconSession {
         }
 
         session.push_log(RconLogEvent::Info("[RCON] Session created.".to_string()));
-        session.status.set(RconStatus::Authenticated);
+
+        *session.state.status.write() = RconStatus::Authenticated;
 
         if is_cs2 {
             let local_ip = log_receiver_ip(addr).unwrap_or_else(|| Ipv4Addr::new(127, 0, 0, 1));
@@ -566,8 +637,8 @@ impl RconSession {
 
     pub fn get_maps(&self) {
         let client = self.client.clone();
-        let mut maps = self.maps;
-        let mut logs = self.logs;
+        let mut maps = self.state.maps;
+        let mut logs = self.state.logs;
 
         spawn(async move {
             let mut client = client.lock().await;
@@ -577,7 +648,6 @@ impl RconSession {
                     let parsed_maps = RconSession::parse_maps(&response);
                     maps.set(parsed_maps);
                 }
-
                 Err(error) => {
                     logs.write().push(RconLogEvent::Info(format!(
                         "[RCON] Failed to get maps: {}",

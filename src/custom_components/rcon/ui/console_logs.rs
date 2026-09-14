@@ -1,3 +1,4 @@
+use crate::custom_components::code::RconState;
 use crate::custom_components::rcon::code::RconLogEvent;
 use crate::custom_components::ui::pretty_log;
 use dioxus::prelude::*;
@@ -5,10 +6,8 @@ use live_log::parser::LogType;
 use std::collections::HashSet;
 
 #[component]
-pub fn RconLogOutput(
-    logs: Signal<Vec<RconLogEvent>>,
-    selected_events: HashSet<LogType>,
-) -> Element {
+pub fn RconLogOutput(rcon_state: RconState, selected_events: HashSet<LogType>) -> Element {
+    let logs = rcon_state.logs();
     rsx! {
         div {
             class: "flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-6 space-y-1 scrollbar-thin",

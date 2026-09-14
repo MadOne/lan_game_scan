@@ -188,6 +188,7 @@ fn parse_a2s_info(
         730 => "CS2".to_string(),
         _ => game,
     };
+    /*
     log::debug!(
         target: "lan_scan::parser",
         "A2S_INFO {}: server_type={:02X} ({:?}), environment={:02X}, visibility={}",
@@ -197,6 +198,7 @@ fn parse_a2s_info(
         _environment,
         visibility
     );
+    */
     if server_type == b'p' {
         game_name.push_str(" TV");
         name = format!("SourceTV - {name}");

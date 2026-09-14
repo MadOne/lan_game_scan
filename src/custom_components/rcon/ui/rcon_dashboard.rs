@@ -63,46 +63,44 @@ fn RconServerCard(addr: SocketAddr) -> Element {
     let state = use_context::<AppState>();
 
     let mut selected_rcon = state.selected_rcon;
+    /*
+       let session_data = match state.rcon_manager.with_session(&addr, |session| {
+           (
+               session.state.status,
+               session.state.match_paused,
+               session.state.score,
+               session.state.players,
+               session.state.team_name_ct,
+               session.state.team_name_t,
+               session.state.need_attention,
+           )
+       }) {
+           Some(data) => data,
+           None => {
+               return rsx! {};
+           }
+       };
 
-    let session_data = match state.rcon_manager.with_session(&addr, |session| {
-        (
-            session.status,
-            session.match_paused,
-            session.score,
-            session.players,
-            session.team_name_ct,
-            session.team_name_t,
-            session.need_attention,
-        )
-    }) {
-        Some(data) => data,
-        None => {
-            return rsx! {};
-        }
-    };
+       // -------------------------------------------------------------------------
+       // Copy the Signals out of the session.
+       // -------------------------------------------------------------------------
 
-    // -------------------------------------------------------------------------
-    // Copy the Signals out of the session.
-    // -------------------------------------------------------------------------
-
-    let (status, match_paused, score, players, team_name_ct, team_name_t, need_attention) =
-        session_data;
-
+       let (status, match_paused, score, players, team_name_ct, team_name_t, need_attention) =
+           session_data;
+    */
     // -------------------------------------------------------------------------
     // Session state
     // -------------------------------------------------------------------------
 
-    let current_status = status();
-    let is_paused = match_paused();
-    let current_score = score();
-    let current_players = players();
-
-    let current_need_attention = need_attention();
-
-    let current_team_name_ct = team_name_ct();
-    let current_team_name_t = team_name_t();
-
-    let player_count = current_players.players().len();
+    let rcon_state = state.rcon_manager.state(&addr).unwrap();
+    let current_status = rcon_state.status();
+    let is_paused = rcon_state.match_paused();
+    let current_score = rcon_state.score();
+    let current_players = &rcon_state.players();
+    let current_need_attention = rcon_state.need_attention();
+    let current_team_name_ct = &rcon_state.team_name_ct();
+    let current_team_name_t = &rcon_state.team_name_t();
+    let player_count = current_players.read().players().len();
 
     // -------------------------------------------------------------------------
     // Server information
@@ -127,25 +125,26 @@ fn RconServerCard(addr: SocketAddr) -> Element {
     // -------------------------------------------------------------------------
     // Team names
     // -------------------------------------------------------------------------
-
+    let TeamNameCT = current_team_name_ct.read().cloned();
+    let TeamNameT = current_team_name_t.read().cloned();
     let display_team_name_ct = if current_team_name_ct.is_empty() {
         "COUNTER-TERRORISTS"
     } else {
-        current_team_name_ct.as_str()
+        TeamNameCT.as_str()
     };
 
     let display_team_name_t = if current_team_name_t.is_empty() {
         "TERRORISTS"
     } else {
-        current_team_name_t.as_str()
+        TeamNameT.as_str()
     };
 
     // -------------------------------------------------------------------------
     // Status
     // -------------------------------------------------------------------------
 
-    let (status_text, status_class) = match current_status {
-        RconStatus::Authenticated if is_paused => ("● PAUSED", "text-orange-400"),
+    let (status_text, status_class) = match current_status.read().cloned() {
+        RconStatus::Authenticated if is_paused.read().cloned() => ("● PAUSED", "text-orange-400"),
 
         RconStatus::Authenticated => ("● RUNNING", "text-emerald-500"),
 
@@ -161,6 +160,7 @@ fn RconServerCard(addr: SocketAddr) -> Element {
     // -------------------------------------------------------------------------
 
     let player_names: Vec<String> = current_players
+        .read()
         .players()
         .values()
         .filter(|player| !player.name.is_empty())
@@ -171,7 +171,7 @@ fn RconServerCard(addr: SocketAddr) -> Element {
     // Card styling
     // -------------------------------------------------------------------------
 
-    let card_class = if current_need_attention {
+    let card_class = if current_need_attention.read().cloned() {
         "
             bg-zinc-900/70
             border
@@ -221,7 +221,7 @@ fn RconServerCard(addr: SocketAddr) -> Element {
                     // ATTENTION INDICATOR
                     // --------------------------------------------------------
 
-                    if current_need_attention {
+                    if current_need_attention.read().cloned() {
                         span {
                             class: "shrink-0 text-red-500 text-sm font-black animate-pulse",
                             title: "ADMIN MESSAGE",
@@ -289,7 +289,7 @@ fn RconServerCard(addr: SocketAddr) -> Element {
 
                     div {
                         class: "text-blue-300 text-2xl font-black mt-1",
-                        "{current_score.ct}"
+                        "{current_score.read().ct}"
                     }
                 }
 
@@ -307,7 +307,7 @@ fn RconServerCard(addr: SocketAddr) -> Element {
 
                     div {
                         class: "text-red-300 text-2xl font-black mt-1",
-                        "{current_score.t}"
+                        "{current_score.read().t}"
                     }
                 }
             }

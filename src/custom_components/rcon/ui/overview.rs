@@ -2,11 +2,9 @@ use dioxus::prelude::*;
 use std::net::SocketAddr;
 
 use crate::custom_components::{
-    code::{Player, RconLogEvent, RconPlayers, Team, TeamScore},
+    code::{Player, RconState, Team},
     ui::RconChat,
 };
-
-use cbz_rcon::RconStatus;
 
 // =============================================================================
 // RCON OVERVIEW
@@ -17,36 +15,12 @@ pub fn RconOverview(
     addr: SocketAddr,
     hostname: String,
     map: String,
-    status: Signal<RconStatus>,
-    score: Signal<TeamScore>,
-    player_count: u8,
+    rcon_state: RconState,
     player_max: u8,
-    logs: Signal<Vec<RconLogEvent>>,
-    players: Signal<RconPlayers>,
-    paused: Signal<bool>,
-    maps: Signal<Vec<String>>,
+    player_count: u8,
     on_command: EventHandler<String>,
     get_maps: EventHandler<()>,
 ) -> Element {
-    // Keep the RconPlayers value alive while we borrow player data from it.
-    let current_players = players();
-
-    let ct_players: Vec<Player> = current_players
-        .players()
-        .values()
-        .filter(|player| player.team == Team::CT)
-        .cloned()
-        .collect();
-
-    let t_players: Vec<Player> = current_players
-        .players()
-        .values()
-        .filter(|player| player.team == Team::Terrorist)
-        .cloned()
-        .collect();
-
-    let current_score = score();
-
     rsx! {
         div {
             class: "flex flex-col h-full min-h-0 bg-zinc-950",
@@ -58,9 +32,7 @@ pub fn RconOverview(
             RconControlBar {
                 hostname,
                 map,
-                score: current_score,
-                paused,
-                maps,
+                rcon_state,
                 on_command,
                 get_maps,
             }
@@ -77,9 +49,7 @@ pub fn RconOverview(
                 // ====================================================
 
                 RconTeams {
-                    ct_players,
-                    t_players,
-                    score: current_score,
+                    rcon_state,
                     on_command,
                 }
 
@@ -88,7 +58,7 @@ pub fn RconOverview(
                 // ====================================================
 
                 RconChatPanel {
-                    logs,
+                    rcon_state,
                     on_command,
                 }
             }
@@ -104,12 +74,13 @@ pub fn RconOverview(
 fn RconControlBar(
     hostname: String,
     map: String,
-    score: TeamScore,
-    paused: Signal<bool>,
-    maps: Signal<Vec<String>>,
+    rcon_state: RconState,
     on_command: EventHandler<String>,
     get_maps: EventHandler<()>,
 ) -> Element {
+    let score = rcon_state.score();
+    let round = score.read().round;
+
     rsx! {
         div {
             class: "shrink-0 bg-zinc-900 border-b border-zinc-800 px-5 py-3",
@@ -128,7 +99,7 @@ fn RconControlBar(
 
                 RconMapSelector {
                     map,
-                    maps,
+                    rcon_state,
                     on_command,
                     get_maps,
                 }
@@ -143,7 +114,7 @@ fn RconControlBar(
                 // ------------------------------------------------
 
                 RconRoundControls {
-                    round: score.round,
+                    round: round,
                     on_command,
                 }
 
@@ -157,7 +128,7 @@ fn RconControlBar(
                 // ------------------------------------------------
 
                 RconPauseControls {
-                    paused,
+                    rcon_state,
                     on_command,
                 }
 
@@ -170,7 +141,7 @@ fn RconControlBar(
                 // CONFIG
                 // ------------------------------------------------
 
-                RconConfig {
+                RconAdmin {
                     on_command,
                 }
             }
@@ -185,13 +156,13 @@ fn RconControlBar(
 #[component]
 fn RconMapSelector(
     map: String,
-    maps: Signal<Vec<String>>,
+    rcon_state: RconState,
     on_command: EventHandler<String>,
     get_maps: EventHandler<()>,
 ) -> Element {
     let mut show_map_change = use_signal(|| false);
     let mut map_input = use_signal(String::new);
-
+    let maps = rcon_state.maps();
     let current_maps = maps();
 
     // -------------------------------------------------------------------------
@@ -540,7 +511,8 @@ fn RconRoundControls(round: i32, on_command: EventHandler<String>) -> Element {
 // =============================================================================
 
 #[component]
-fn RconPauseControls(paused: Signal<bool>, on_command: EventHandler<String>) -> Element {
+fn RconPauseControls(rcon_state: RconState, on_command: EventHandler<String>) -> Element {
+    let paused = rcon_state.match_paused();
     let is_paused = paused();
 
     rsx! {
@@ -601,12 +573,24 @@ fn RconPauseControls(paused: Signal<bool>, on_command: EventHandler<String>) -> 
 // =============================================================================
 
 #[component]
-fn RconTeams(
-    ct_players: Vec<Player>,
-    t_players: Vec<Player>,
-    score: TeamScore,
-    on_command: EventHandler<String>,
-) -> Element {
+fn RconTeams(rcon_state: RconState, on_command: EventHandler<String>) -> Element {
+    let score = rcon_state.score();
+    let current_players = rcon_state.players();
+    let ct_players: Vec<Player> = current_players
+        .read()
+        .players()
+        .values()
+        .filter(|player| player.team == Team::CT)
+        .cloned()
+        .collect();
+
+    let t_players: Vec<Player> = current_players
+        .read()
+        .players()
+        .values()
+        .filter(|player| player.team == Team::Terrorist)
+        .cloned()
+        .collect();
     rsx! {
         div {
             class: "flex-1 min-w-0 p-6 overflow-y-auto",
@@ -617,14 +601,14 @@ fn RconTeams(
                 RconTeamColumn {
                     team: Team::CT,
                     players: ct_players,
-                    score: score.ct,
+                    score: score.read().ct,
                     on_command,
                 }
 
                 RconTeamColumn {
                     team: Team::Terrorist,
                     players: t_players,
-                    score: score.t,
+                    score: score.read().t,
                     on_command,
                 }
             }
@@ -979,43 +963,23 @@ fn RconTeamColumn(
 // =============================================================================
 
 #[component]
-fn RconChatPanel(logs: Signal<Vec<RconLogEvent>>, on_command: EventHandler<String>) -> Element {
+fn RconChatPanel(rcon_state: RconState, on_command: EventHandler<String>) -> Element {
     let chat_input = use_signal(String::new);
 
     // ------------------------------------------------------------
     // Mobile chat state
     // ------------------------------------------------------------
 
-    let show_mobile_chat = use_signal(|| false);
-
-    // Number of log entries that were already seen while the chat
-    // was open. We use the log length so this does not depend on
-    // the internal structure of RconLogEvent.
-    let mut seen_log_count = use_signal(|| logs().len());
-
-    let current_log_count = logs().len();
-
-    let has_unread_chat = !show_mobile_chat() && current_log_count > seen_log_count();
-
-    // Once the mobile chat is opened, everything currently in the
-    // log becomes read.
-    if show_mobile_chat() && current_log_count > seen_log_count() {
-        seen_log_count.set(current_log_count);
-    }
-
     rsx! {
         RconDesktopChat {
-            logs,
+            rcon_state,
             chat_input,
             on_command,
         }
 
         RconMobileChat {
-            logs,
+            rcon_state,
             chat_input,
-            show_mobile_chat,
-            seen_log_count,
-            has_unread_chat,
             on_command,
         }
     }
@@ -1027,7 +991,7 @@ fn RconChatPanel(logs: Signal<Vec<RconLogEvent>>, on_command: EventHandler<Strin
 
 #[component]
 fn RconDesktopChat(
-    logs: Signal<Vec<RconLogEvent>>,
+    rcon_state: RconState,
     chat_input: Signal<String>,
     on_command: EventHandler<String>,
 ) -> Element {
@@ -1043,7 +1007,7 @@ fn RconDesktopChat(
                 class: "flex-1 min-h-0",
 
                 RconChat {
-                    logs: logs
+                    rcon_state,
                 }
             }
 
@@ -1065,13 +1029,18 @@ fn RconDesktopChat(
 
 #[component]
 fn RconMobileChat(
-    logs: Signal<Vec<RconLogEvent>>,
+    rcon_state: RconState,
     chat_input: Signal<String>,
-    show_mobile_chat: Signal<bool>,
-    seen_log_count: Signal<usize>,
-    has_unread_chat: bool,
     on_command: EventHandler<String>,
 ) -> Element {
+    let logs = rcon_state.logs();
+    let mut show_mobile_chat = use_signal(|| false);
+    let mut seen_log_count = use_signal(|| logs.len());
+    let current_log_count = logs.len();
+    let has_unread_chat = !show_mobile_chat() && current_log_count > seen_log_count();
+    if show_mobile_chat() && current_log_count > seen_log_count() {
+        seen_log_count.set(current_log_count);
+    }
     rsx! {
         // ====================================================
         // MOBILE CHAT BUTTON
@@ -1218,7 +1187,7 @@ fn RconMobileChat(
                     class: "flex-1 min-h-0",
 
                     RconChat {
-                        logs: logs
+                        rcon_state,
                     }
                 }
 
@@ -1357,8 +1326,8 @@ fn RconChatInput(
 // =============================================================================
 
 #[component]
-fn RconConfig(on_command: EventHandler<String>) -> Element {
-    let mut show_config = use_signal(|| false);
+fn RconAdmin(on_command: EventHandler<String>) -> Element {
+    let mut show_admin = use_signal(|| false);
     let mut exec_input = use_signal(String::new);
 
     rsx! {
@@ -1373,7 +1342,7 @@ fn RconConfig(on_command: EventHandler<String>) -> Element {
                 class: "px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-[9px] font-black text-zinc-300 hover:border-indigo-500 hover:text-indigo-300",
 
                 onclick: move |_| {
-                    show_config.set(!show_config());
+                    show_admin.set(!show_admin());
                 },
 
                 "CONFIG"
@@ -1383,7 +1352,7 @@ fn RconConfig(on_command: EventHandler<String>) -> Element {
             // CONFIG POPUP
             // ------------------------------------------------
 
-            if show_config() {
+            if show_admin() {
                 div {
                     class: "absolute top-8 left-1/2 -translate-x-1/2 z-50 bg-zinc-900 border border-zinc-700 rounded-lg p-3 shadow-xl w-[520px] max-w-[calc(100vw-2rem)]",
 
@@ -1422,7 +1391,7 @@ fn RconConfig(on_command: EventHandler<String>) -> Element {
                                             "exec gamemode_armsrace.cfg".to_string()
                                         );
 
-                                        show_config.set(false);
+                                        show_admin.set(false);
                                     },
 
                                     "ARMS RACE"
@@ -1436,7 +1405,7 @@ fn RconConfig(on_command: EventHandler<String>) -> Element {
                                             "exec gamemode_competitive.cfg".to_string()
                                         );
 
-                                        show_config.set(false);
+                                        show_admin.set(false);
                                     },
 
                                     "COMPETITIVE"
@@ -1450,7 +1419,7 @@ fn RconConfig(on_command: EventHandler<String>) -> Element {
                                             "exec gamemode_casual.cfg".to_string()
                                         );
 
-                                        show_config.set(false);
+                                        show_admin.set(false);
                                     },
 
                                     "CASUAL"
@@ -1464,7 +1433,7 @@ fn RconConfig(on_command: EventHandler<String>) -> Element {
                                             "exec gamemode_deathmatch.cfg".to_string()
                                         );
 
-                                        show_config.set(false);
+                                        show_admin.set(false);
                                     },
 
                                     "DEATHMATCH"
@@ -1495,7 +1464,7 @@ fn RconConfig(on_command: EventHandler<String>) -> Element {
                                             "exec turnier.cfg".to_string()
                                         );
 
-                                        show_config.set(false);
+                                        show_admin.set(false);
                                     },
 
                                     "TURNIER.CFG"
@@ -1528,7 +1497,7 @@ fn RconConfig(on_command: EventHandler<String>) -> Element {
                                                         );
 
                                                         exec_input.set(String::new());
-                                                        show_config.set(false);
+                                                        show_admin.set(false);
                                                     }
                                                 }
                                             }
@@ -1546,7 +1515,7 @@ fn RconConfig(on_command: EventHandler<String>) -> Element {
                                                     );
 
                                                     exec_input.set(String::new());
-                                                    show_config.set(false);
+                                                    show_admin.set(false);
                                                 }
                                             },
 

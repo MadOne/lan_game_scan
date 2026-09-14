@@ -523,7 +523,7 @@ fn ServerDetails(srv: GameServer) -> Element {
 
     let status = state
         .rcon_manager
-        .with_session(&addr, |session| *session.status.read())
+        .with_session(&addr, |session| session.state.status().read().clone())
         .unwrap_or(RconStatus::Disconnected);
 
     let is_authenticated = status == RconStatus::Authenticated;

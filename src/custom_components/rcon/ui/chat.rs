@@ -1,11 +1,14 @@
 use dioxus::prelude::*;
 use live_log::parser::LogType;
 
-use crate::custom_components::{code::RconLogEvent, ui::pretty_log};
+use crate::custom_components::{
+    code::{RconLogEvent, RconState},
+    ui::pretty_log,
+};
 
 #[component]
-#[component]
-pub fn RconChat(logs: Signal<Vec<RconLogEvent>>) -> Element {
+pub fn RconChat(rcon_state: RconState) -> Element {
+    let logs = rcon_state.logs();
     rsx! {
         div {
             class: "w-[360px] shrink-0 border-l border-zinc-800 bg-zinc-900/30 flex flex-col min-h-0",

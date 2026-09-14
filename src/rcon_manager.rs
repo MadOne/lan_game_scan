@@ -1,4 +1,4 @@
-use crate::custom_components::code::RconSession;
+use crate::custom_components::code::{RconSession, RconState};
 use dioxus::prelude::*;
 use lan_scan::ServerProtocol;
 use std::collections::HashMap;
@@ -22,6 +22,12 @@ impl RconManager {
         password: String,
         protocol: ServerProtocol,
     ) -> bool {
+        tracing::debug!("[RCON] connect requested for {}", addr);
+        if self.sessions.read().contains_key(&addr) {
+            tracing::debug!("[RCON] {} is already connected", addr);
+            return false;
+        }
+
         if let Some(session) = RconSession::connect(addr, password, protocol).await {
             self.insert(addr, session);
             true
@@ -42,6 +48,12 @@ impl RconManager {
     ) -> Option<R> {
         self.sessions.read().get(addr).map(f)
     }
+    pub fn state(&self, addr: &SocketAddr) -> Option<RconState> {
+        self.sessions
+            .read()
+            .get(addr)
+            .map(|session| session.state.clone())
+    }
 
     pub fn len(&self) -> usize {
         self.sessions.with(|sessions| sessions.len())
@@ -55,7 +67,7 @@ impl RconManager {
         self.sessions
             .read()
             .values()
-            .filter(|session| (session.need_attention)())
+            .filter(|session| *session.state.need_attention().read())
             .count()
     }
 

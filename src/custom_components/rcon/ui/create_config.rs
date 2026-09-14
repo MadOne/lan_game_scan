@@ -3,10 +3,9 @@ use if_addrs::{get_if_addrs, IfAddr};
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-use cbz_rcon::RconStatus;
 use serde::Serialize;
 
-use crate::custom_components::code::{RconLogEvent, RconPlayers, Team, TeamScore};
+use crate::custom_components::code::{RconState, Team};
 
 // =============================================================================
 // Steam ID helpers
@@ -91,35 +90,17 @@ pub struct MatchTeam {
 pub fn CreateConfig(
     addr: SocketAddr,
     hostname: String,
-    map: String,
-    status: Signal<RconStatus>,
-    score: Signal<TeamScore>,
-    player_count: u8,
-    player_max: u8,
-    logs: Signal<Vec<RconLogEvent>>,
-    players: Signal<RconPlayers>,
-    paused: Signal<bool>,
-    maps: Signal<Vec<String>>,
+    rcon_state: RconState,
     on_command: EventHandler<String>,
     get_maps: EventHandler<()>,
 ) -> Element {
-    let _ = (
-        &map,
-        &status,
-        player_count,
-        player_max,
-        &logs,
-        &paused,
-        &maps,
-        &get_maps,
-    );
-
     let mut show_mobile_config = use_signal(|| false);
     let mut generated_config = use_signal(String::new);
 
     // Live Player data
-    let current_players = players();
+    let current_players = rcon_state.players();
     let ct_players: Vec<(String, String)> = current_players
+        .read()
         .players()
         .values()
         .filter(|player| player.team == Team::CT)
@@ -136,6 +117,7 @@ pub fn CreateConfig(
         .collect();
 
     let t_players: Vec<(String, String)> = current_players
+        .read()
         .players()
         .values()
         .filter(|player| player.team == Team::Terrorist)
@@ -151,13 +133,11 @@ pub fn CreateConfig(
         })
         .collect();
 
-    let current_score = score();
+    let current_score = rcon_state.score();
 
     // Teams state
     let mut ct_team_name = use_signal(String::new);
     let mut t_team_name = use_signal(String::new);
-    //let ct_captain = use_signal(|| None::<String>);
-    //let captain = use_signal(|| None::<String>);
 
     // Manual Entry state
     let mut ct_extra_1_sid = use_signal(String::new);
@@ -300,7 +280,7 @@ pub fn CreateConfig(
                                     value: "{ct_team_name}",
                                     oninput: move |e| ct_team_name.set(e.value())
                                 }
-                                div { class: "text-blue-400 text-5xl font-black mt-2", "{current_score.ct}" }
+                                div { class: "text-blue-400 text-5xl font-black mt-2", "{current_score.read().ct}" }
                                 div { class: "text-[9px] text-zinc-600 mt-1", "{ct_players.len()} / 3 PLAYERS" }
                             }
 
@@ -345,7 +325,7 @@ pub fn CreateConfig(
                                     value: "{t_team_name}",
                                     oninput: move |e| t_team_name.set(e.value())
                                 }
-                                div { class: "text-red-400 text-5xl font-black mt-2", "{current_score.t}" }
+                                div { class: "text-red-400 text-5xl font-black mt-2", "{current_score.read().t}" }
                                 div { class: "text-[9px] text-zinc-600 mt-1", "{t_players.len()} / 3 PLAYERS" }
                             }
 

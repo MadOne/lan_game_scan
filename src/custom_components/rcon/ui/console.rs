@@ -1,3 +1,4 @@
+use crate::custom_components::code::StateUpdate;
 use crate::custom_components::cvar::CvarFlag;
 use crate::custom_components::ui::cvar_filters::CvarFilters;
 use crate::{
@@ -22,46 +23,32 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
 
     let mut inner_tab = use_signal(|| RconSubTab::Overview);
 
-    //let visible_events = use_signal(|| LogType::all().collect::<HashSet<LogType>>());
-
-    //let filter_popup_open = use_signal(|| false);
-
-    // -------------------------------------------------------------------------
-    // Command history
-    //
-    // This belongs to RconConsole so it survives switching between tabs.
-    // -------------------------------------------------------------------------
-
-    let session_data = match state.rcon_manager.with_session(&addr, |session| {
-        (
-            session.logs,
-            session.status,
-            session.players,
-            session.score,
-            session.match_paused,
-            session.client.clone(),
-            session.maps,
-            session.cvar_db,
-            session.command_history,
-        )
-    }) {
-        Some(data) => data,
+    let rcon_state = match state.rcon_manager.state(&addr) {
+        Some(state) => state,
         None => {
             return rsx! {
                 div {
-                    class: "h-full flex items-center justify-center bg-zinc-950 text-zinc-600",
                     "Disconnected."
                 }
             };
         }
     };
-
+    let client = match state
+        .rcon_manager
+        .with_session(&addr, |session| session.client.clone())
+    {
+        Some(client) => client,
+        None => {
+            return rsx! {
+                div {
+                    "Disconnected."
+                }
+            };
+        }
+    };
     // -------------------------------------------------------------------------
     // Session state
     // -------------------------------------------------------------------------
-
-    let (logs, status_signal, players, score, paused, client, maps, cvar_db, command_history) =
-        session_data;
 
     let cvar_filter_popup_open = use_signal(|| false);
 
@@ -77,6 +64,13 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
             CvarFlag::DevelopmentOnly,
         ])
     });
+    let status = rcon_state.status().read().cloned();
+    /*
+    let logs = rcon_state.logs;
+
+    let cvar_db = rcon_state.cvar_db;
+    let command_history = rcon_state.command_history;
+    */
 
     // -------------------------------------------------------------------------
     // Server information
@@ -112,8 +106,6 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
     let player_max = server.scanned.players_max.unwrap_or(0);
 
     let protocol = server.scanned.protocol;
-
-    let status = status_signal();
 
     let mut pw_input = use_signal(String::new);
 
@@ -302,14 +294,9 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
                             addr,
                             hostname,
                             map,
-                            status: status_signal,
-                            score,
+                            rcon_state,
                             player_count,
                             player_max,
-                            logs,
-                            players,
-                            paused,
-                            maps,
 
                             get_maps: move |_| {
                                 state.rcon_manager.with_session(&addr, |session| {
@@ -319,28 +306,24 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
 
                             on_command: move |command: String| {
                                 let client = client.clone();
-                                let mut logs = logs;
+                                let sender = rcon_state.sender.read().clone();
 
                                 spawn(async move {
                                     let mut client = client.lock().await;
 
-                                    match client.command(&command).await {
+                                    let update = match client.command(&command).await {
                                         Ok(response) => {
-                                            logs.write().push(
-                                                RconLogEvent::RconResponse(response)
-                                            );
+                                            StateUpdate::Log(RconLogEvent::RconResponse(response))
                                         }
-
                                         Err(error) => {
-                                            logs.write().push(
-                                                RconLogEvent::Info(
-                                                    format!(
-                                                        "[RCON] Command failed: {}",
-                                                        error
-                                                    )
-                                                )
-                                            );
+                                            StateUpdate::Log(RconLogEvent::Info(
+                                                format!("[RCON] Command failed: {}", error),
+                                            ))
                                         }
+                                    };
+
+                                    if sender.send(update).await.is_err() {
+                                        tracing::error!("Failed to send RCON command result to state");
                                     }
                                 });
                             },
@@ -382,7 +365,8 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
                                 // -------------------------------------------------
 
                                 RconLogOutput {
-                                    logs,
+                                    //logs,
+                                    rcon_state,
                                     selected_events,
                                 }
 
@@ -391,47 +375,56 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
                                 // -------------------------------------------------
 
                                 RconCommandInput {
-                                    cvar_db,
+                                    rcon_state,
+                                    //cvar_db,
                                     cvar_filters,
-                                    command_history,
+                                    //command_history,
 
-                                    on_command: move |command: String| {
-                                        let client = client.clone();
-                                        let mut logs = logs;
+                                on_command: move |command: String| {
+                                    let client = client.clone();
+                                    let sender = rcon_state.sender.read().clone();
 
-                                        spawn(async move {
-                                            let mut client = client.lock().await;
+                                    spawn(async move {
+                                        let mut client = client.lock().await;
 
-                                            tracing::debug!(">>> SEND: {}", command);
+                                        tracing::debug!(">>> SEND: {}", command);
 
-                                            match client.command(&command).await {
-                                                Ok(response) => {
-                                                    tracing::debug!(
-                                                        "<<< RESPONSE FOR '{}': {:?}",
-                                                        command,
-                                                        response
-                                                    );
+                                        match client.command(&command).await {
+                                            Ok(response) => {
+                                                tracing::debug!(
+                                                    "<<< RESPONSE FOR '{}': {:?}",
+                                                    command,
+                                                    response
+                                                );
 
-                                                    logs.write().push(
-                                                        RconLogEvent::RconResponse(
-                                                            response,
-                                                        ),
-                                                    );
-                                                }
-
-                                                Err(error) => {
-                                                    logs.write().push(
-                                                        RconLogEvent::Info(
-                                                            format!(
-                                                                "[RCON] Command failed: {}",
-                                                                error
-                                                            ),
-                                                        ),
-                                                    );
+                                                if sender
+                                                    .send(StateUpdate::Log(
+                                                        RconLogEvent::RconResponse(response),
+                                                    ))
+                                                    .await
+                                                    .is_err()
+                                                {
+                                                    tracing::error!("Failed to send RCON response to state");
                                                 }
                                             }
-                                        });
-                                    },
+
+                                            Err(error) => {
+                                                if sender
+                                                    .send(StateUpdate::Log(
+                                                        RconLogEvent::Info(format!(
+                                                            "[RCON] Command failed: {}",
+                                                            error
+                                                        )),
+                                                    ))
+                                                    .await
+                                                    .is_err()
+                                                {
+                                                    tracing::error!("Failed to send RCON error to state");
+                                                }
+                                            }
+                                        }
+                                    });
+                                },
                                 }
                             }
                         }
@@ -445,16 +438,7 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
                         CreateConfig {
                             addr,
                             hostname,
-                            map,
-                            status: status_signal,
-                            score,
-                            player_count,
-                            player_max,
-                            logs,
-                            players,
-                            paused,
-                            maps,
-
+                            rcon_state,
                             get_maps: move |_| {
                                 state.rcon_manager.with_session(&addr, |session| {
                                     session.get_maps();
@@ -463,28 +447,24 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
 
                             on_command: move |command: String| {
                                 let client = client.clone();
-                                let mut logs = logs;
+                                let sender = rcon_state.sender.read().clone();
 
                                 spawn(async move {
                                     let mut client = client.lock().await;
 
-                                    match client.command(&command).await {
+                                    let update = match client.command(&command).await {
                                         Ok(response) => {
-                                            logs.write().push(
-                                                RconLogEvent::RconResponse(response)
-                                            );
+                                            StateUpdate::Log(RconLogEvent::RconResponse(response))
                                         }
-
                                         Err(error) => {
-                                            logs.write().push(
-                                                RconLogEvent::Info(
-                                                    format!(
-                                                        "[RCON] Command failed: {}",
-                                                        error
-                                                    )
-                                                )
-                                            );
+                                            StateUpdate::Log(RconLogEvent::Info(
+                                                format!("[RCON] Command failed: {}", error),
+                                            ))
                                         }
+                                    };
+
+                                    if sender.send(update).await.is_err() {
+                                        tracing::error!("Failed to send RCON command result to state");
                                     }
                                 });
                             },

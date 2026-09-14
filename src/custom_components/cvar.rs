@@ -45,7 +45,7 @@ pub enum CvarFlag {
     Defensive,       // Protection against malicious buffer overflows
     Demo,            // Added this
 }
-
+#[derive(Debug, Clone)]
 pub struct CvarDatabase {
     cvars: HashMap<String, Cvar>,
 }
