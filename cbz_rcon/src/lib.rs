@@ -1,6 +1,7 @@
 mod error;
 mod status;
 
+pub mod blocking;
 pub mod goldsrc;
 pub mod quake3;
 pub mod source;
@@ -8,6 +9,7 @@ pub mod source2;
 
 use std::net::SocketAddr;
 
+pub use blocking::BlockingRconClient;
 pub use error::RconError;
 pub use goldsrc::GoldSrcRconClient;
 pub use quake3::Quake3RconClient;
