@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::net::SocketAddr;
 
 use crate::server::ScannedServer;
-use crate::{ParseResult, PlayerInfo, ServerProtocol, ServerUpdate, SplitBuffer};
+use crate::{ParseResult, PendingQuery, PlayerInfo, ServerProtocol, ServerUpdate, SplitBuffer};
 
 /// Main entry point called directly by scanner.rs upon receiving a UDP packet.
 pub fn parse(
@@ -30,7 +30,10 @@ pub fn parse(
         }
 
         if let Some(update) = parse_quake3(&payload[20..], addr, ping_ms) {
-            return ParseResult::Update(update);
+            return ParseResult::Update {
+                query_type: PendingQuery::Info,
+                update,
+            };
         }
 
         return ParseResult::Ignored;
@@ -48,7 +51,10 @@ pub fn parse(
     // 3. Source A2S_INFO response ('I' / 0x49)
     if len > 5 && payload.starts_with(b"\xFF\xFF\xFF\xFF\x49") {
         if let Some(server) = parse_a2s_info(&payload[5..], addr, ping_ms) {
-            return ParseResult::Update(ServerUpdate::FullServer(server));
+            return ParseResult::Update {
+                query_type: PendingQuery::Info,
+                update: ServerUpdate::FullServer(server),
+            };
         }
 
         return ParseResult::Ignored;
@@ -57,7 +63,10 @@ pub fn parse(
     // 4. GoldSrc Legacy INFO response ('m' / 0x6D)
     if len > 5 && payload.starts_with(b"\xFF\xFF\xFF\xFF\x6D") {
         if let Some(server) = parse_goldsrc_info(&payload[5..], addr, ping_ms) {
-            return ParseResult::Update(ServerUpdate::FullServer(server));
+            return ParseResult::Update {
+                query_type: PendingQuery::Info,
+                update: ServerUpdate::FullServer(server),
+            };
         }
 
         return ParseResult::Ignored;
@@ -66,7 +75,10 @@ pub fn parse(
     // 5. Source A2S_PLAYER response ('D' / 0x44)
     if len > 5 && payload.starts_with(b"\xFF\xFF\xFF\xFF\x44") {
         if let Some(players) = parse_a2s_player(&payload[5..]) {
-            return ParseResult::Update(ServerUpdate::PlayerList { addr, players });
+            return ParseResult::Update {
+                query_type: PendingQuery::Player,
+                update: ServerUpdate::PlayerList { addr, players },
+            };
         }
 
         return ParseResult::Ignored;
@@ -85,7 +97,10 @@ pub fn parse(
         };
 
         if let Some(server) = parse_gamespy(gs_payload, addr, ping_ms) {
-            return ParseResult::Update(ServerUpdate::FullServer(server));
+            return ParseResult::Update {
+                query_type: PendingQuery::Info,
+                update: ServerUpdate::FullServer(server),
+            };
         }
 
         return ParseResult::Ignored;
@@ -188,6 +203,7 @@ fn parse_a2s_info(
         730 => "CS2".to_string(),
         _ => game,
     };
+
     /*
     log::debug!(
         target: "lan_scan::parser",
@@ -199,6 +215,7 @@ fn parse_a2s_info(
         visibility
     );
     */
+
     if server_type == b'p' {
         game_name.push_str(" TV");
         name = format!("SourceTV - {name}");

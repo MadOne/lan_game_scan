@@ -92,13 +92,22 @@ pub enum ServerProtocol {
 
 #[derive(Debug)]
 pub enum ParseResult {
-    /// Server payload parsed successfully
-    Update(ServerUpdate),
-    /// Challenge token received from server (4 bytes)
+    /// Server payload parsed successfully.
+    ///
+    /// The query type identifies which pending request produced this response,
+    /// allowing the scanner to clear only that request.
+    Update {
+        query_type: PendingQuery,
+        update: ServerUpdate,
+    },
+
+    /// Challenge token received from server (4 bytes).
     Challenge([u8; 4]),
-    /// Waiting for remaining split fragments to complete reassembly
+
+    /// Waiting for remaining split fragments to complete reassembly.
     PartialSplit,
-    /// Unrecognized packet format or corrupted data
+
+    /// Unrecognized packet format or corrupted data.
     Ignored,
 }
 

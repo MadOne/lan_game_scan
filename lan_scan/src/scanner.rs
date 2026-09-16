@@ -10,13 +10,14 @@ use tokio::time::interval;
 use crate::{parser, ParseResult, PendingQuery, ScanCommand, ServerUpdate, SplitBuffer};
 
 const MAX_PING: Duration = Duration::from_secs(1);
+
 pub struct Scanner {
     socket: Arc<UdpSocket>,
     cmd_rx: Receiver<ScanCommand>,
     ui_tx: Sender<ServerUpdate>,
 
     // State tracking
-    pending_queries: HashMap<SocketAddr, (PendingQuery, Instant, u8)>, // (Type, StartTime, Retries)
+    pending_requests: HashMap<SocketAddr, Vec<PendingRequest>>,
     ping_tracker: HashMap<SocketAddr, Instant>,
     challenges: HashMap<SocketAddr, [u8; 4]>,
     split_cache: HashMap<(SocketAddr, u32), SplitBuffer>,
@@ -27,6 +28,12 @@ pub struct Scanner {
     broadcast: bool,
 }
 
+struct PendingRequest {
+    query_type: PendingQuery,
+    started: Instant,
+    retries: u8,
+}
+
 impl Scanner {
     pub async fn new(
         bind_addr: &str,
@@ -34,19 +41,20 @@ impl Scanner {
         ui_tx: Sender<ServerUpdate>,
     ) -> Result<Self, std::io::Error> {
         let socket = UdpSocket::bind(bind_addr).await?;
-        if let Err(err) = socket.set_broadcast(true) {
+
+        if let Err(error) = socket.set_broadcast(true) {
             log::warn!(
                 target: "lan_scan::scanner",
                 "Failed to set SO_BROADCAST: {}",
-                err
+                error
             );
         }
 
-        Ok(Scanner {
+        Ok(Self {
             socket: Arc::new(socket),
             cmd_rx,
             ui_tx,
-            pending_queries: HashMap::new(),
+            pending_requests: HashMap::new(),
             ping_tracker: HashMap::new(),
             challenges: HashMap::new(),
             split_cache: HashMap::new(),
@@ -61,14 +69,15 @@ impl Scanner {
         let mut recv_buf = vec![0u8; 4096];
         let mut cleanup_ticker = interval(Duration::from_millis(250));
         let mut scan_ticker = interval(Duration::from_secs(10));
+
         loop {
             tokio::select! {
-                // 1. Incoming command from the UI/Controller
+                // 1. Incoming command from the UI/controller
                 command = self.cmd_rx.recv() => {
                     match command {
-                    Some(command) => {
-                        self.handle_command(command).await;
-                    }
+                        Some(command) => {
+                            self.handle_command(command).await;
+                        }
 
                         None => {
                             log::debug!(
@@ -97,10 +106,11 @@ impl Scanner {
                     }
                 }
 
-                // 3. Periodic timer to prune timed-out requests or retry missing challenges
+                // 3. Periodic timeout/retry handling
                 _ = cleanup_ticker.tick() => {
                     self.handle_timeouts().await;
                 }
+
                 // 4. Automatic background scanning
                 _ = scan_ticker.tick() => {
                     self.handle_auto_scan().await;
@@ -109,159 +119,227 @@ impl Scanner {
         }
     }
 
-    // --- COMMAND HANDLING & OUTBOUND PACKETS ---
+    // =========================================================================
+    // COMMAND HANDLING & OUTBOUND PACKETS
+    // =========================================================================
 
     async fn handle_command(&mut self, cmd: ScanCommand) {
         match cmd {
             ScanCommand::ScanServer { addr, query_type } => {
                 self.send_query(addr, query_type).await;
             }
+
             ScanCommand::BatchScan { addrs, query_type } => {
                 for addr in addrs {
                     self.send_query(addr, query_type).await;
                 }
             }
+
             ScanCommand::Cancel => {
-                self.pending_queries.clear();
+                self.pending_requests.clear();
                 self.ping_tracker.clear();
                 self.challenges.clear();
                 self.split_cache.clear();
             }
         }
     }
+
     async fn handle_auto_scan(&mut self) {
-        // 1. Broadcast to LAN query ports if enabled
-        if self.broadcast {
-            const BROADCAST_PORTS: &[u16] = &[27015, 27016, 27017, 27018, 27019, 27020];
-            let payload = b"\xFF\xFF\xFF\xFFTSource Engine Query\x00";
+        if !self.broadcast {
+            return;
+        }
 
-            for &port in BROADCAST_PORTS {
-                if let Ok(addr) = format!("255.255.255.255:{}", port).parse::<SocketAddr>() {
-                    let now = std::time::Instant::now();
-                    self.ping_tracker.insert(addr, now);
-                    let _ = self.socket.send_to(payload, addr).await;
-                }
-            }
-            // 2. Quake Engine Ports (Q3A default: 27960, Q2 default: 27910)
-            const QUAKE_PORTS: &[u16] = &[
-                27070, 27960, 27961, 27962, 27963, 27992, 28960, 28961, 28962, 28963,
-            ];
+        // 1. Source / GoldSrc broadcast ports
+        const BROADCAST_PORTS: &[u16] = &[27015, 27016, 27017, 27018, 27019, 27020];
 
-            let quake_payload = b"\xFF\xFF\xFF\xFFgetstatus\x00";
+        let payload = b"\xFF\xFF\xFF\xFFTSource Engine Query\x00";
 
-            for &port in QUAKE_PORTS {
-                if let Ok(addr) = format!("255.255.255.255:{}", port).parse::<SocketAddr>() {
-                    let now = std::time::Instant::now();
-                    self.ping_tracker.insert(addr, now);
-                    let _ = self.socket.send_to(quake_payload, addr).await;
-                }
-            }
-            // 3. GameSpy v1 Ports (UT2004 default query offset: 7778, Battlefield 1942: 23000, 28910)
-            const GAMESPY_PORTS: &[u16] = &[7777, 7778, 7787, 7788, 23000, 12203, 12300];
-            let gamespy_payload = b"\\status\\";
+        for &port in BROADCAST_PORTS {
+            if let Ok(addr) = format!("255.255.255.255:{}", port).parse::<SocketAddr>() {
+                let now = Instant::now();
+                self.ping_tracker.insert(addr, now);
 
-            for &port in GAMESPY_PORTS {
-                if let Ok(addr) = format!("255.255.255.255:{}", port).parse::<SocketAddr>() {
-                    let now = std::time::Instant::now();
-                    self.ping_tracker.insert(addr, now);
-                    let _ = self.socket.send_to(gamespy_payload, addr).await;
+                if let Err(error) = self.socket.send_to(payload, addr).await {
+                    log::warn!(
+                        target: "lan_scan::scanner",
+                        "Failed to send broadcast query to {}: {}",
+                        addr,
+                        error
+                    );
                 }
             }
         }
 
-        // 2. Optional: Re-query existing/known servers in state
+        // 2. Quake Engine ports
+        const QUAKE_PORTS: &[u16] = &[
+            27070, 27960, 27961, 27962, 27963, 27992, 28960, 28961, 28962, 28963,
+        ];
+
+        let quake_payload = b"\xFF\xFF\xFF\xFFgetstatus\x00";
+
+        for &port in QUAKE_PORTS {
+            if let Ok(addr) = format!("255.255.255.255:{}", port).parse::<SocketAddr>() {
+                let now = Instant::now();
+                self.ping_tracker.insert(addr, now);
+
+                if let Err(error) = self.socket.send_to(quake_payload, addr).await {
+                    log::warn!(
+                        target: "lan_scan::scanner",
+                        "Failed to send Quake broadcast query to {}: {}",
+                        addr,
+                        error
+                    );
+                }
+            }
+        }
+
+        // 3. GameSpy v1 ports
+        const GAMESPY_PORTS: &[u16] = &[7777, 7778, 7787, 7788, 23000, 12203, 12300];
+
+        let gamespy_payload = b"\\status\\";
+
+        for &port in GAMESPY_PORTS {
+            if let Ok(addr) = format!("255.255.255.255:{}", port).parse::<SocketAddr>() {
+                let now = Instant::now();
+                self.ping_tracker.insert(addr, now);
+
+                if let Err(error) = self.socket.send_to(gamespy_payload, addr).await {
+                    log::warn!(
+                        target: "lan_scan::scanner",
+                        "Failed to send GameSpy broadcast query to {}: {}",
+                        addr,
+                        error
+                    );
+                }
+            }
+        }
+
+        // Optional: re-query existing/known servers.
         // self.refresh_known_servers().await;
     }
 
     async fn send_query(&mut self, addr: SocketAddr, query_type: PendingQuery) {
         let now = Instant::now();
 
-        // Track ping timestamp and pending state
+        // Track ping timestamp.
         self.ping_tracker.insert(addr, now);
-        let retries = self
-            .pending_queries
-            .get(&addr)
-            .map(|(_, _, r)| *r)
-            .unwrap_or(0);
-        self.pending_queries
-            .insert(addr, (query_type, now, retries));
+
+        // Preserve the retry count if this query already exists.
+        let requests = self.pending_requests.entry(addr).or_default();
+
+        if let Some(request) = requests
+            .iter_mut()
+            .find(|request| request.query_type == query_type)
+        {
+            request.started = now;
+        } else {
+            requests.push(PendingRequest {
+                query_type,
+                started: now,
+                retries: 0,
+            });
+        }
 
         let challenge = self.challenges.get(&addr).copied();
 
-        // Construct raw payload depending on protocol / query requirements
         let payload = match query_type {
             PendingQuery::Info => {
-                // Source / GoldSrc A2S_INFO query payload
+                // Source / GoldSrc A2S_INFO query.
                 let mut pkt = vec![
                     0xFF, 0xFF, 0xFF, 0xFF, b'T', b'S', b'o', b'u', b'r', b'c', b'e', b' ', b'E',
                     b'n', b'g', b'i', b'n', b'e', b' ', b'Q', b'u', b'e', b'r', b'y', 0x00,
                 ];
+
                 if let Some(token) = challenge {
                     pkt.extend_from_slice(&token);
                 }
 
                 pkt
             }
+
             PendingQuery::Player => {
-                // Source A2S_PLAYER query payload (Requires challenge token if server demands it)
+                // Source A2S_PLAYER query.
                 let mut pkt = vec![0xFF, 0xFF, 0xFF, 0xFF, b'U'];
+
                 let token = challenge.unwrap_or([0xFF, 0xFF, 0xFF, 0xFF]);
+
                 pkt.extend_from_slice(&token);
                 pkt
             }
+
             PendingQuery::Rules => {
-                // Source A2S_RULES query payload
+                // Source A2S_RULES query.
                 let mut pkt = vec![0xFF, 0xFF, 0xFF, 0xFF, b'V'];
+
                 let token = challenge.unwrap_or([0xFF, 0xFF, 0xFF, 0xFF]);
+
                 pkt.extend_from_slice(&token);
                 pkt
             }
         };
 
-        let _ = self.socket.send_to(&payload, addr).await;
+        if let Err(error) = self.socket.send_to(&payload, addr).await {
+            log::warn!(
+                target: "lan_scan::scanner",
+                "Failed to send {:?} query to {}: {}",
+                query_type,
+                addr,
+                error
+            );
+        }
     }
 
-    // --- INBOUND RESPONSE PROCESSING ---
+    // =========================================================================
+    // INBOUND RESPONSE PROCESSING
+    // =========================================================================
 
     async fn handle_socket_data(&mut self, data: &[u8], addr: SocketAddr) {
         let mut data_vec = data.to_vec();
 
-        // Calculate RTT ping duration
         let ping_ms = self.calculate_ping(addr);
 
-        // Execute pure parser logic
         match parser::parse(&mut data_vec, addr, ping_ms, &mut self.split_cache) {
-            ParseResult::Update(update) => {
-                self.pending_queries.remove(&addr);
-                match self.ui_tx.send(update).await {
-                    Ok(_) => (),
-                    Err(e) => {
-                        log::error!(
-                            target: "lan_scan::scanner",
-                            "Failed to send update for {}: {:?}",
-                            addr,
-                            e
-                        );
+            ParseResult::Update { query_type, update } => {
+                if let Some(requests) = self.pending_requests.get_mut(&addr) {
+                    requests.retain(|request| request.query_type != query_type);
+
+                    if requests.is_empty() {
+                        self.pending_requests.remove(&addr);
                     }
+                }
+
+                if let Err(error) = self.ui_tx.send(update).await {
+                    log::error!(
+                        target: "lan_scan::scanner",
+                        "Failed to send update for {}: {}",
+                        addr,
+                        error
+                    );
                 }
             }
 
             ParseResult::Challenge(token) => {
+                // Keep the challenge until it is replaced by a newer one.
                 self.challenges.insert(addr, token);
+
+                // We do not know which pending query caused the challenge,
+                // so request Info again using the new token.
                 self.send_query(addr, PendingQuery::Info).await;
             }
 
             ParseResult::PartialSplit => {
-                // Packet split reassembly in progress
+                // Packet split reassembly is in progress.
             }
 
             ParseResult::Ignored => {
-                // Raw / Unrecognized response bytes
+                // Raw / unrecognized response bytes.
             }
         }
     }
 
-    // --- TIMEOUT & RETRY MANAGEMENT ---
+    // =========================================================================
+    // TIMEOUT & RETRY MANAGEMENT
+    // =========================================================================
 
     async fn handle_timeouts(&mut self) {
         let now = Instant::now();
@@ -271,28 +349,48 @@ impl Scanner {
         let mut expired = Vec::new();
         let mut retries = Vec::new();
 
-        for (&addr, &(query_type, start_time, retry_count)) in self.pending_queries.iter() {
-            if now.duration_since(start_time) > timeout {
-                if retry_count < max_retries {
-                    retries.push((addr, query_type, retry_count + 1));
-                } else {
-                    expired.push(addr);
+        for (&addr, requests) in &self.pending_requests {
+            for request in requests {
+                if now.duration_since(request.started) > timeout {
+                    if request.retries < max_retries {
+                        retries.push((addr, request.query_type, request.retries + 1));
+                    } else {
+                        expired.push((addr, request.query_type));
+                    }
                 }
             }
         }
 
-        // Notify UI layer of dropped/timed-out servers
-        for addr in expired {
-            self.pending_queries.remove(&addr);
+        // Remove only the query that actually expired.
+        for (addr, query_type) in expired {
+            let mut all_requests_expired = false;
+
+            if let Some(requests) = self.pending_requests.get_mut(&addr) {
+                requests.retain(|request| request.query_type != query_type);
+                all_requests_expired = requests.is_empty();
+            }
+
+            if !all_requests_expired {
+                log::debug!(
+                    target: "lan_scan::scanner",
+                    "Query {:?} timed out for {} after {} retries",
+                    query_type,
+                    addr,
+                    max_retries
+                );
+
+                continue;
+            }
+
+            self.pending_requests.remove(&addr);
             self.ping_tracker.remove(&addr);
-            //self.challenges.remove(&addr);
 
             self.split_cache
                 .retain(|(split_addr, _), _| *split_addr != addr);
 
             log::debug!(
                 target: "lan_scan::scanner",
-                "Query timed out for {} after {} retries",
+                "All queries for {} timed out after {} retries",
                 addr,
                 max_retries
             );
@@ -307,17 +405,27 @@ impl Scanner {
             }
         }
 
-        // Resend query for retried servers
-        for (addr, query_type, count) in retries {
-            self.pending_queries
-                .insert(addr, (query_type, Instant::now(), count));
+        // Retry each individual query.
+        for (addr, query_type, retry_count) in retries {
+            if let Some(requests) = self.pending_requests.get_mut(&addr) {
+                if let Some(request) = requests
+                    .iter_mut()
+                    .find(|request| request.query_type == query_type)
+                {
+                    request.retries = retry_count;
+                }
+            }
+
             self.send_query(addr, query_type).await;
         }
     }
 
-    // 1. Helper function or method on your struct:
+    // =========================================================================
+    // PING TRACKING
+    // =========================================================================
+
     fn calculate_ping(&mut self, addr: SocketAddr) -> Option<u16> {
-        // Exact unicast match
+        // Exact unicast match.
         if let Some(start) = self.ping_tracker.remove(&addr) {
             let elapsed = start.elapsed();
 
@@ -328,7 +436,7 @@ impl Scanner {
             return None;
         }
 
-        // Broadcast fallback
+        // Broadcast fallback.
         let matching_key = self
             .ping_tracker
             .keys()
@@ -348,10 +456,10 @@ impl Scanner {
         None
     }
 
-    // Helper to identify global or subnet broadcast addresses
     fn is_broadcast_ip(&self, ip: &std::net::IpAddr) -> bool {
         match ip {
             std::net::IpAddr::V4(v4) => v4.is_broadcast() || v4.octets()[3] == 255,
+
             std::net::IpAddr::V6(_) => false,
         }
     }
