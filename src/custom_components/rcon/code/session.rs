@@ -99,6 +99,18 @@ impl RconState {
                 logs.write().push(RconLogEvent::LiveLog(parsed.clone()));
 
                 match &parsed.event {
+                    LogEvent::Connection {
+                        player,
+                        action,
+                        info: _,
+                    } => {
+                        let mut players = self.players;
+
+                        if action.eq_ignore_ascii_case("disconnected") {
+                            players.write().remove_player(player.id);
+                        }
+                    }
+
                     LogEvent::TeamSwitch { player, .. } => {
                         let mut players = self.players;
                         players.write().update_with_team_switch(player);
@@ -673,8 +685,8 @@ impl RconSession {
         if let Some(live_log_url) = self.live_log_url.take() {
             let command_live_log = format!("logaddress_del_http \"{}\"", live_log_url);
 
-            let cleanup_live_log = match client.command_no_response(&command_live_log).await {
-                Ok(()) => true,
+            let cleanup_live_log = match client.command(&command_live_log).await {
+                Ok(_) => true,
                 Err(error) => {
                     tracing::error!("Cleanup live log failed for {}: {}", self.addr, error);
                     false
@@ -685,11 +697,8 @@ impl RconSession {
         }
 
         if self.matchzy_log_url.take().is_some() {
-            let cleanup_matchzy = match client
-                .command_no_response("matchzy_remote_log_url \"\"")
-                .await
-            {
-                Ok(()) => true,
+            let cleanup_matchzy = match client.command("matchzy_remote_log_url \"\"").await {
+                Ok(_) => true,
                 Err(error) => {
                     tracing::error!("Cleanup MatchZy failed for {}: {}", self.addr, error);
                     false
@@ -704,7 +713,8 @@ impl RconSession {
 
     fn rcon_protocol(protocol: ServerProtocol) -> Option<RconProtocol> {
         match protocol {
-            ServerProtocol::Source | ServerProtocol::Source2 => Some(RconProtocol::Source),
+            ServerProtocol::Source => Some(RconProtocol::Source),
+            ServerProtocol::Source2 => Some(RconProtocol::Source2),
             ServerProtocol::GoldSrc => Some(RconProtocol::GoldSrc),
             ServerProtocol::Quake3 => Some(RconProtocol::Quake3),
             _ => None,

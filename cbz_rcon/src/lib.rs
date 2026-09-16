@@ -4,14 +4,16 @@ mod status;
 pub mod goldsrc;
 pub mod quake3;
 pub mod source;
+pub mod source2;
 
 use std::net::SocketAddr;
 
 pub use error::RconError;
+pub use goldsrc::GoldSrcRconClient;
+pub use quake3::Quake3RconClient;
 pub use source::SourceRconClient;
+pub use source2::Source2RconClient;
 pub use status::RconStatus;
-
-use crate::{goldsrc::GoldSrcRconClient, quake3::Quake3RconClient};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RconProtocol {
@@ -26,7 +28,7 @@ pub enum RconProtocol {
 pub enum RconClient {
     Source(SourceRconClient),
     GoldSrc(GoldSrcRconClient),
-    Source2(SourceRconClient),
+    Source2(Source2RconClient),
     Quake3(Quake3RconClient),
 }
 
@@ -35,7 +37,7 @@ impl RconClient {
         match protocol {
             RconProtocol::Source => RconClient::Source(SourceRconClient::new(addr, password)),
             RconProtocol::GoldSrc => RconClient::GoldSrc(GoldSrcRconClient::new(addr, password)),
-            RconProtocol::Source2 => RconClient::Source2(SourceRconClient::new(addr, password)),
+            RconProtocol::Source2 => RconClient::Source2(Source2RconClient::new(addr, password)),
             RconProtocol::Quake3 => RconClient::Quake3(Quake3RconClient::new(addr, password)),
         }
     }
@@ -55,15 +57,6 @@ impl RconClient {
             RconClient::GoldSrc(client) => client.command(command).await,
             RconClient::Source2(client) => client.command(command).await,
             RconClient::Quake3(client) => client.command(command).await,
-        }
-    }
-
-    pub async fn command_no_response(&mut self, command: &str) -> Result<(), RconError> {
-        match self {
-            RconClient::Source(client) => client.command_no_response(command).await,
-            RconClient::GoldSrc(client) => client.command_no_response(command).await,
-            RconClient::Source2(client) => client.command_no_response(command).await,
-            RconClient::Quake3(client) => client.command_no_response(command).await,
         }
     }
 

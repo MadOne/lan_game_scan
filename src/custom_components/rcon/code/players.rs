@@ -126,4 +126,7 @@ impl RconPlayers {
     pub fn players(&self) -> &HashMap<u16, Player> {
         &self.players
     }
+    pub fn remove_player(&mut self, player_id: u16) {
+        self.players.remove(&player_id);
+    }
 }
