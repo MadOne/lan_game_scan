@@ -4,42 +4,34 @@
 
 use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::post, Router};
 use std::io;
-use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc::{self, Receiver};
-
-use crate::parser::{LogParser, ParsedLine};
 
 const MAX_JSON_LINES: usize = 80;
 const MAX_CVAR_LINES: usize = 1028;
 
 #[derive(Debug)]
-pub struct LiveLog {
+pub struct LogReceiverTcp {
     port: u16,
-    receiver: Option<Receiver<ParsedLine>>,
+    receiver: Option<Receiver<String>>,
     http_task: tokio::task::JoinHandle<()>,
-    processor_task: tokio::task::JoinHandle<()>,
+    assembler_task: tokio::task::JoinHandle<()>,
 }
 
-impl LiveLog {
-    /// Creates a new LiveLog instance.
-    ///
-    /// Port 0 tells the operating system to select a free port.
+impl LogReceiverTcp {
     pub async fn new() -> io::Result<Self> {
-        let parser = Arc::new(LogParser::new());
-
         // Let the OS select a free port.
         let listener = TcpListener::bind("0.0.0.0:0").await?;
         let port = listener.local_addr()?.port();
 
         log::debug!(
             target: "live_log",
-            "LiveLog listening on port {}",
+            "LogReceiverTcp listening on port {}",
             port
         );
 
         let (tx, mut rx) = mpsc::channel::<String>(1000);
-        let (parsed_sender, parsed_receiver) = mpsc::channel::<ParsedLine>(1000);
+        let (message_sender, message_receiver) = mpsc::channel::<String>(1000);
 
         let app = Router::new().route("/", post(handle_logs)).with_state(tx);
 
@@ -61,18 +53,16 @@ impl LiveLog {
         // Log processing
         // ---------------------------------------------------------------------
 
-        let processor_task = tokio::spawn(async move {
+        let assembler_task = tokio::spawn(async move {
             let mut assembler = LogAssembler::new();
 
             while let Some(body) = rx.recv().await {
                 for line in body.lines() {
                     for message in assembler.process_line(line) {
-                        let parsed = parser.parse(&message);
-
-                        if parsed_sender.send(parsed).await.is_err() {
+                        if message_sender.send(message).await.is_err() {
                             log::debug!(
                                 target: "live_log",
-                                "Parsed log receiver was dropped; stopping processor"
+                                "Parsed message receiver was dropped; stopping log assembler"
                             );
 
                             return;
@@ -83,15 +73,15 @@ impl LiveLog {
 
             log::debug!(
                 target: "live_log",
-                "Log input channel closed; stopping processor"
+                "Log input channel closed; stopping log assembler"
             );
         });
 
         Ok(Self {
             port,
-            receiver: Some(parsed_receiver),
+            receiver: Some(message_receiver),
             http_task,
-            processor_task,
+            assembler_task,
         })
     }
 
@@ -100,22 +90,22 @@ impl LiveLog {
         self.port
     }
 
-    pub fn take_receiver(&mut self) -> Option<Receiver<ParsedLine>> {
+    pub fn take_receiver(&mut self) -> Option<Receiver<String>> {
         self.receiver.take()
     }
 
     pub async fn stop(self) {
         log::debug!(
             target: "live_log",
-            "Stopping LiveLog on port {}",
+            "Stopping LogReceiverTcp on port {}",
             self.port
         );
 
         self.http_task.abort();
-        self.processor_task.abort();
+        self.assembler_task.abort();
 
         let _ = self.http_task.await;
-        let _ = self.processor_task.await;
+        let _ = self.assembler_task.await;
     }
 }
 
@@ -127,7 +117,7 @@ async fn handle_logs(State(tx): State<mpsc::Sender<String>>, body: String) -> im
     if tx.send(body).await.is_err() {
         log::error!(
             target: "live_log",
-            "Failed to forward incoming log body to processor"
+            "Failed to forward incoming log body to assembler"
         );
 
         return StatusCode::SERVICE_UNAVAILABLE;

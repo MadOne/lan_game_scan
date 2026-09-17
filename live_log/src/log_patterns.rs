@@ -108,7 +108,7 @@ fn parse_player(c: &Captures, prefix: &str) -> Option<Player> {
 pub struct LogPattern {
     pub id: &'static str,
     pub regex: Regex,
-    parse_fn: fn(&str, &Captures) -> Option<LogEvent>,
+    pub(crate) parse_fn: fn(&str, &Captures) -> Option<LogEvent>,
     pretty_fn: fn(&LogEvent) -> String,
 }
 

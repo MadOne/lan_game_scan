@@ -2,14 +2,8 @@
 // tests.rs
 // -----------------------------------------------------------------------------
 
-use std::net::SocketAddr;
-
 use live_log::parser::{LogEvent, LogParser, LogType, Team};
 use regex::Regex;
-
-fn test_socketaddr() -> SocketAddr {
-    "127.0.0.1:27015".parse().unwrap()
-}
 
 // -----------------------------------------------------------------------------
 // STEAMID

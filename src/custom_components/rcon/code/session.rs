@@ -4,10 +4,14 @@ use std::{
 };
 
 use cbz_rcon::{RconClient, RconProtocol, RconStatus};
-use dioxus::{core::Task, prelude::*};
+use dioxus::{
+    core::{spawn_forever, Task},
+    prelude::*,
+};
 use lan_scan::ServerProtocol;
 use live_log::{
-    http_catcher::LiveLog,
+    game::Game,
+    live_log::LiveLog,
     parser::{LogEvent, ParsedLine, Team},
 };
 use tokio::sync::mpsc::{Receiver, Sender};
@@ -49,28 +53,50 @@ impl RconState {
         let (sender, receiver) = tokio::sync::mpsc::channel::<StateUpdate>(256);
 
         RconState {
-            logs: Signal::new_in_scope(Vec::new(), ScopeId::APP),
-            status: Signal::new_in_scope(RconStatus::Disconnected, ScopeId::APP),
-            players: Signal::new_in_scope(RconPlayers::new(), ScopeId::APP),
-            match_paused: Signal::new_in_scope(false, ScopeId::APP),
+            logs: Signal::new_in_scope(Vec::new(), ScopeId::ROOT),
+            status: Signal::new_in_scope(RconStatus::Disconnected, ScopeId::ROOT),
+            players: Signal::new_in_scope(RconPlayers::new(), ScopeId::ROOT),
+            match_paused: Signal::new_in_scope(false, ScopeId::ROOT),
             score: Signal::new_in_scope(
                 TeamScore {
                     ct: 0,
                     t: 0,
                     round: 0,
                 },
-                ScopeId::APP,
+                ScopeId::ROOT,
             ),
-            maps: Signal::new_in_scope(Vec::new(), ScopeId::APP),
-            team_name_ct: Signal::new_in_scope("TeamA".to_string(), ScopeId::APP),
-            team_name_t: Signal::new_in_scope(String::new(), ScopeId::APP),
-            max_rounds: Signal::new_in_scope(0, ScopeId::APP),
-            need_attention: Signal::new_in_scope(false, ScopeId::APP),
-            cvar_db: Signal::new_in_scope(None, ScopeId::APP),
-            command_history: Signal::new_in_scope(Vec::new(), ScopeId::APP),
-            sender: Signal::new_in_scope(sender, ScopeId::APP),
-            receiver: Signal::new_in_scope(receiver, ScopeId::APP),
+            maps: Signal::new_in_scope(Vec::new(), ScopeId::ROOT),
+            team_name_ct: Signal::new_in_scope("TeamA".to_string(), ScopeId::ROOT),
+            team_name_t: Signal::new_in_scope(String::new(), ScopeId::ROOT),
+            max_rounds: Signal::new_in_scope(0, ScopeId::ROOT),
+            need_attention: Signal::new_in_scope(false, ScopeId::ROOT),
+            cvar_db: Signal::new_in_scope(None, ScopeId::ROOT),
+            command_history: Signal::new_in_scope(Vec::new(), ScopeId::ROOT),
+            sender: Signal::new_in_scope(sender, ScopeId::ROOT),
+            receiver: Signal::new_in_scope(receiver, ScopeId::ROOT),
         }
+        /*
+        RconState {
+            logs: Signal::new(Vec::new()),
+            status: Signal::new(RconStatus::Disconnected),
+            players: Signal::new(RconPlayers::new()),
+            match_paused: Signal::new(false),
+            score: Signal::new(TeamScore {
+                ct: 0,
+                t: 0,
+                round: 0,
+            }),
+            maps: Signal::new(Vec::new()),
+            team_name_ct: Signal::new("TeamA".to_string()),
+            team_name_t: Signal::new(String::new()),
+            max_rounds: Signal::new(0),
+            need_attention: Signal::new(false),
+            cvar_db: Signal::new(None),
+            command_history: Signal::new(Vec::new()),
+            sender: Signal::new(sender),
+            receiver: Signal::new(receiver),
+        }
+        */
     }
     pub async fn run(&mut self) {
         loop {
@@ -80,23 +106,28 @@ impl RconState {
             };
 
             let Some(update) = update else {
+                tracing::debug!("Break in RconState::run ");
                 break;
             };
 
+            tracing::debug!("calling update");
             self.update(update);
         }
     }
 
     pub fn update(&self, update: StateUpdate) {
+        tracing::debug!("update called");
         match update {
             StateUpdate::Log(rcon_log_event) => {
                 let mut logs = self.logs;
                 logs.write().push(rcon_log_event);
+                tracing::debug!("RconLogEvent catched and inserting in update");
             }
 
             StateUpdate::LogEvent(parsed) => {
                 let mut logs = self.logs;
                 logs.write().push(RconLogEvent::LiveLog(parsed.clone()));
+                tracing::debug!("LogEvent catched and inserting in update");
 
                 match &parsed.event {
                     LogEvent::Connection {
@@ -260,6 +291,25 @@ impl RconState {
     pub fn match_paused(&self) -> ReadSignal<bool> {
         self.match_paused.into()
     }
+    fn close(&mut self) {
+        tracing::debug!("RconState: Dropping signals to prevent leaks...");
+
+        // Manually drop each signal
+        self.logs.manually_drop();
+        self.status.manually_drop();
+        self.players.manually_drop();
+        self.match_paused.manually_drop();
+        self.score.manually_drop();
+        self.maps.manually_drop();
+        self.team_name_ct.manually_drop();
+        self.team_name_t.manually_drop();
+        self.max_rounds.manually_drop();
+        self.need_attention.manually_drop();
+        self.cvar_db.manually_drop();
+        self.command_history.manually_drop();
+        self.sender.manually_drop();
+        self.receiver.manually_drop();
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -276,7 +326,7 @@ pub struct RconSession {
     // -------------------------------------------------------------------------
     pub client: Arc<tokio::sync::Mutex<RconClient>>,
     pub live_log: Option<LiveLog>,
-    live_log_task: Option<Task>,
+    pub live_log_task: Option<Task>,
     pub live_log_url: Option<String>,
     pub matchzy_log_url: Option<String>,
     pub state: RconState,
@@ -289,7 +339,7 @@ impl RconSession {
         )));
         let state = RconState::new();
 
-        spawn({
+        spawn_forever({
             let mut state = state;
             async move {
                 state.run().await;
@@ -332,7 +382,7 @@ impl RconSession {
     // LIVE LOG
     // =========================================================================
 
-    async fn start_live_log(&mut self) -> bool {
+    async fn start_live_log(&mut self, game: Game) -> bool {
         let receiver_ip = match log_receiver_ip(self.addr) {
             Some(ip) => ip,
             None => {
@@ -344,7 +394,7 @@ impl RconSession {
             }
         };
 
-        let live_log = match LiveLog::new().await {
+        let live_log = match LiveLog::new(game).await {
             Ok(log) => log,
             Err(err) => {
                 self.push_log(RconLogEvent::Info(format!(
@@ -363,6 +413,7 @@ impl RconSession {
         )));
 
         let log_url = format!("http://{}:{}", receiver_ip, port);
+
         self.push_log(RconLogEvent::Info(format!(
             "[LIVE_LOG] Receiver URL: {}",
             log_url
@@ -392,13 +443,18 @@ impl RconSession {
             return false;
         }
 
-        let command = format!("logaddress_add_http \"{}\"", log_url);
+        let address = format!("{}:{}", receiver_ip, port);
+
+        let command = match game {
+            Game::Cs2 | Game::Css => format!("logaddress_add_http \"{}\"", log_url),
+            Game::Cs16 => format!("logaddress_add {} {}", receiver_ip, port),
+        };
 
         if !self
             .send_rcon_command(
                 &command,
-                &format!("[LIVE_LOG] Registered {}: ", log_url),
-                &format!("[LIVE_LOG] Failed to register {}: ", log_url),
+                &format!("[LIVE_LOG] Registered {}: ", address),
+                &format!("[LIVE_LOG] Failed to register {}: ", address),
             )
             .await
         {
@@ -413,8 +469,10 @@ impl RconSession {
                 "[LIVE_LOG] Failed to list HTTP log addresses: ",
             )
             .await;
+
         self.live_log = Some(live_log);
         self.live_log_url = Some(log_url);
+
         true
     }
 
@@ -466,9 +524,11 @@ impl RconSession {
         client: Arc<tokio::sync::Mutex<RconClient>>,
         rcon_state: RconState,
     ) {
+        tracing::debug!("process_live_log: STARTED");
         let sender = rcon_state.sender.read().clone();
 
         while let Some(parsed) = receiver.recv().await {
+            tracing::debug!("process_live_log: received ParsedLine");
             if sender
                 .send(StateUpdate::LogEvent(parsed.clone()))
                 .await
@@ -477,7 +537,9 @@ impl RconSession {
                 tracing::error!("process_live_log: RconState receiver dropped");
                 break;
             }
+            tracing::debug!("process_live_log: forwarded ParsedLine");
 
+            tracing::debug!("process_live_log: checking admin command");
             match is_command(&parsed.event) {
                 Some(AdminCommand::Pause) => {
                     let client = client.clone();
@@ -505,21 +567,23 @@ impl RconSession {
 
                 _ => {}
             }
+            tracing::debug!("process_live_log: processed ParsedLine");
         }
+        tracing::debug!("process_live_log: STOPPED");
     }
 
     // =========================================================================
     // CONNECTION / SESSION CREATION
     // =========================================================================
 
-    pub async fn connect(
-        addr: SocketAddr,
-        password: String,
-        protocol: ServerProtocol,
-    ) -> Option<Self> {
-        let is_cs2 = matches!(protocol, ServerProtocol::Source2);
-        let rcon_protocol = Self::rcon_protocol(protocol)?;
+    pub async fn connect(addr: SocketAddr, password: String, game: Game) -> Option<Self> {
+        let protocol = match game {
+            Game::Cs2 => ServerProtocol::Source2,
+            Game::Css => ServerProtocol::Source,
+            Game::Cs16 => ServerProtocol::GoldSrc,
+        };
 
+        let rcon_protocol = Self::rcon_protocol(protocol)?;
         let mut session = Self::new(addr, password, rcon_protocol);
 
         session.push_log(RconLogEvent::Info(format!(
@@ -533,28 +597,32 @@ impl RconSession {
 
         session.push_log(RconLogEvent::Info("[RCON] Authenticated.".to_string()));
 
-        if is_cs2 {
-            if !session.start_live_log().await {
+        let has_live_log = matches!(game, Game::Cs2 | Game::Css | Game::Cs16);
+
+        if has_live_log {
+            if !session.start_live_log(game).await {
                 session.push_log(RconLogEvent::Info(
                     "[RCON] Failed to configure live log.".to_string(),
                 ));
                 return None;
             }
 
-            let cvarlist = match session.client.lock().await.command("cvarlist").await {
-                Ok(response) => response,
-                Err(error) => {
-                    session.push_log(RconLogEvent::Info(format!(
-                        "[RCON] Failed to get cvarlist: {}",
-                        error
-                    )));
+            if matches!(game, Game::Cs2) {
+                let cvarlist = match session.client.lock().await.command("cvarlist").await {
+                    Ok(response) => response,
+                    Err(error) => {
+                        session.push_log(RconLogEvent::Info(format!(
+                            "[RCON] Failed to get cvarlist: {}",
+                            error
+                        )));
 
-                    String::new()
-                }
-            };
+                        String::new()
+                    }
+                };
 
-            let db = CvarDatabase::new(&cvarlist);
-            session.state.cvar_db.set(Some(db));
+                let db = CvarDatabase::new(&cvarlist);
+                session.state.cvar_db.set(Some(db));
+            }
 
             if let Some(live_log) = session.live_log.as_mut() {
                 let receiver = match live_log.take_receiver() {
@@ -569,17 +637,23 @@ impl RconSession {
                         return None;
                     }
                 };
+
                 let client = session.client.clone();
                 let rcon_state = session.state.clone();
 
-                let live_log_task = spawn(async move {
+                //let live_log_task =
+                spawn_forever(async move {
+                    tracing::debug!("========== LIVE LOG TASK START ==========");
                     Self::process_live_log(receiver, client, rcon_state).await;
+                    tracing::debug!("========== LIVE LOG TASK END ==========");
                 });
-                session.live_log_task = Some(live_log_task);
+                tracing::debug!("RconSession::connect: storing live_log_task for {}", addr);
+                //session.live_log_task = Some(live_log_task);
+                tracing::debug!("process_live_log task stored in RconSession");
             }
         } else {
             session.push_log(RconLogEvent::Info(
-                "[LIVE_LOG] Skipped live log setup for non-CS2 server.".to_string(),
+                "[LIVE_LOG] Skipped live log setup for unsupported game.".to_string(),
             ));
         }
 
@@ -587,12 +661,16 @@ impl RconSession {
 
         *session.state.status.write() = RconStatus::Authenticated;
 
-        if is_cs2 {
+        if matches!(game, Game::Cs2) {
             let local_ip = log_receiver_ip(addr).unwrap_or_else(|| Ipv4Addr::new(127, 0, 0, 1));
+
             let port = 7131;
             let matchzy_log_url = format!("http://{}:{}/MatchZyLogs", local_ip, port);
+
             session.matchzy_log_url = Some(matchzy_log_url.clone());
+
             let log_command = format!("matchzy_remote_log_url \"{}\"", matchzy_log_url);
+
             let mut client_lock = session.client.lock().await;
 
             match client_lock.command(&log_command).await {
@@ -604,14 +682,14 @@ impl RconSession {
                     );
                 }
 
-                Err(e) => {
-                    tracing::error!("Failed to register log address for {}: {}", addr, e);
+                Err(error) => {
+                    tracing::error!("Failed to register log address for {}: {}", addr, error);
                 }
             }
 
-            // Drop lock before mutating state.
             drop(client_lock);
         }
+
         Some(session)
     }
 
@@ -672,6 +750,7 @@ impl RconSession {
 
     pub async fn close(&mut self) -> bool {
         if let Some(task) = self.live_log_task.take() {
+            tracing::debug!("Cancelling process_live_log task");
             task.cancel();
         }
 
@@ -707,6 +786,7 @@ impl RconSession {
 
             success &= cleanup_matchzy;
         }
+        self.state.close();
 
         success
     }

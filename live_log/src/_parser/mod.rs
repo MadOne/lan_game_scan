@@ -2,13 +2,16 @@
 // parser.rs
 // -----------------------------------------------------------------------------
 
+pub mod patterns;
+
+use std::fmt;
+
 use crate::{
     log_patterns::{build_patterns, LogPattern, TS_BLOCK},
     round_stats::RoundStats,
 };
-use std::fmt;
 
-use regex::{Captures, Regex, RegexSet};
+use regex::{Regex, RegexSet};
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
@@ -552,9 +555,6 @@ impl LogParser {
         let mut timestamp = String::new();
         let mut content = line;
 
-        let line = self.normalize_timestamp(line);
-        let line = &self.normalize_steamids(&line);
-
         // -------------------------------------------------------------
         // Timestamp / content extraction
         // -------------------------------------------------------------
@@ -670,54 +670,6 @@ impl LogParser {
             log_type,
             pretty,
         }
-    }
-
-    fn normalize_timestamp(&self, line: &str) -> String {
-        let line = line.strip_prefix("L ").unwrap_or(line);
-
-        // GoldSrc:
-        // 09/17/2026 - 12:23:53: message
-        //
-        // Normalize to:
-        // 09/17/2026 - 12:23:53.000 - message
-        if line.len() >= 23 && line.as_bytes()[11] == b'-' && line.as_bytes()[21] == b':' {
-            let mut normalized = String::with_capacity(line.len() + 6);
-            normalized.push_str(&line[..21]);
-            normalized.push_str(".000 - ");
-            normalized.push_str(&line[23..]);
-            return normalized;
-        }
-
-        line.to_string()
-    }
-
-    pub fn normalize_steamids(&self, line: &str) -> String {
-        let re = Regex::new(r"\[BOT\]|\bBOT\b|\[U:\d+:(\d+)\]|STEAM_\d+:(\d+):(\d+)")
-            .expect("valid Steam ID regex");
-
-        re.replace_all(line, |caps: &Captures| {
-            let value = caps.get(0).map(|m| m.as_str()).unwrap_or_default();
-
-            if value == "BOT" || value == "[BOT]" {
-                return "BOT".to_string();
-            }
-
-            if let Some(account_id) = caps.get(1) {
-                return format!("[U:1:{}]", account_id.as_str());
-            }
-
-            if let (Some(y), Some(z)) = (caps.get(2), caps.get(3)) {
-                let y = y.as_str().parse::<u64>();
-                let z = z.as_str().parse::<u64>();
-
-                if let (Ok(y), Ok(z)) = (y, z) {
-                    return format!("[U:1:{}]", z * 2 + y);
-                }
-            }
-
-            value.to_string()
-        })
-        .into_owned()
     }
 }
 

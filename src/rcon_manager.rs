@@ -1,6 +1,7 @@
 use crate::custom_components::code::{RconSession, RconState};
 use dioxus::prelude::*;
 use lan_scan::ServerProtocol;
+use live_log::game::Game;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 
@@ -27,8 +28,20 @@ impl RconManager {
             tracing::debug!("[RCON] {} is already connected", addr);
             return false;
         }
-
-        if let Some(session) = RconSession::connect(addr, password, protocol).await {
+        let game = match protocol {
+            ServerProtocol::Source2 => Game::Cs2,
+            ServerProtocol::Source => Game::Css,
+            ServerProtocol::GoldSrc => Game::Cs16,
+            _ => {
+                tracing::error!(
+                    "Cannot create RCON session for {}: unsupported protocol {:?}",
+                    addr,
+                    protocol
+                );
+                return false;
+            }
+        };
+        if let Some(session) = RconSession::connect(addr, password, game).await {
             self.insert(addr, session);
             true
         } else {
@@ -36,6 +49,11 @@ impl RconManager {
         }
     }
     fn insert(&mut self, addr: SocketAddr, session: RconSession) {
+        tracing::debug!(
+            "[RCON] inserting session {}, live_log_task = {}",
+            addr,
+            session.live_log_task.is_some()
+        );
         self.sessions.with_mut(|sessions| {
             sessions.insert(addr, session);
         });

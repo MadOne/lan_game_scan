@@ -3,7 +3,7 @@
 // -----------------------------------------------------------------------------
 
 use live_log::{
-    http_catcher::LiveLog,
+    live_log::LiveLog,
     parser::{LogEvent, LogType},
 };
 
@@ -16,7 +16,9 @@ async fn main() {
         LogType::GameOver,
     ];
 
-    let mut live_log = LiveLog::new().await.expect("Failed to start LiveLog");
+    let mut live_log = LiveLog::new(live_log::game::Game::Css)
+        .await
+        .expect("Failed to start LiveLog");
 
     println!(
         "\x1b[1;36mLiveLog listening on port {}\x1b[0m",
