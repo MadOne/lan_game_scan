@@ -838,6 +838,72 @@ pub fn pretty_log(event: &LogEvent) -> Element {
                 "[RCON] {addr}: {command}"
             }
         },
+
+        // ---------------------------------------------------------------------
+        // RoundTrigger
+        // ---------------------------------------------------------------------
+        LogEvent::RoundTrigger {
+            team,
+            event,
+            ct_score,
+            t_score,
+        } => rsx! {
+            span {
+                class: "text-zinc-300",
+
+                if let Some(team) = team {
+                    span {
+                        class: team_text_class(team),
+                        "{team:?}"
+                    }
+
+                    " "
+                } else {
+                    span {
+                        class: "text-zinc-400",
+                        "World"
+                    }
+
+                    " "
+                }
+
+                span {
+                    class: "text-zinc-200",
+                    "{event}"
+                }
+
+                " "
+
+                span {
+                    class: "text-zinc-400",
+                    "(CT {ct_score} - T {t_score})"
+                }
+            }
+        },
+        LogEvent::PlayerRoleChange { player, role } => rsx! {
+            span {
+                class: "text-zinc-300",
+
+                span {
+                    class: team_text_class(&player.team),
+                    "{player.name}"
+                }
+
+                " "
+
+                span {
+                    class: "text-zinc-200",
+                    "changed role to"
+                }
+
+                " "
+
+                span {
+                    class: "text-zinc-400",
+                    "{role}"
+                }
+            }
+        },
     }
 }
 

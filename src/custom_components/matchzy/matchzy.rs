@@ -51,7 +51,7 @@ async fn get_matchzy_config(State(state): State<MatchZyState>) -> (StatusCode, S
 // Receives log/event payloads sent by MatchZy.
 // =============================================================================
 
-async fn post_matchzy_logs(headers: HeaderMap, body: String) -> StatusCode {
+async fn post_matchzy_logs(_headers: HeaderMap, body: String) -> StatusCode {
     // Optional: Validate matchzy_remote_log_header_key and value if configured
     // if let Some(val) = headers.get("your-header-key") {
     //     // check value...

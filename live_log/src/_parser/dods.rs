@@ -3,13 +3,16 @@ use crate::_parser::{
     sourceengines::{
         cs16::{chat_server, player_team_switch16, rcon16, round_triggered16},
         cs2::*,
-        GOLDSRC_TS_BLOCK, STEAMID2_BLOCK,
+        dods::player_role_change,
+        SOURCE_TS_BLOCK, STEAMID3_BLOCK,
     },
 };
 
-pub const TS_BLOCK: &str = GOLDSRC_TS_BLOCK;
-pub fn cs16_build_patterns() -> Vec<LogPattern> {
-    let blocks = LogPatternBlocks::new(GOLDSRC_TS_BLOCK, STEAMID2_BLOCK);
+pub const TS_BLOCK: &str = SOURCE_TS_BLOCK;
+
+pub fn dods_build_patterns() -> Vec<LogPattern> {
+    let blocks = LogPatternBlocks::new(SOURCE_TS_BLOCK, STEAMID3_BLOCK);
+    log::error!("Loading DoDS Parsing patterns");
     vec![
         player_damaged(&blocks),
         player_killed(&blocks),
@@ -50,5 +53,6 @@ pub fn cs16_build_patterns() -> Vec<LogPattern> {
         server_started(),
         rcon16(),
         round_triggered16(),
+        player_role_change(&blocks),
     ]
 }

@@ -122,11 +122,13 @@ impl Source2RconClient {
     }
 
     pub async fn command(&mut self, command: &str) -> Result<String, RconError> {
+        /*
         log::debug!(
             target: "cbz_rcon::source2",
             "Sending command: {:?}",
             command
         );
+        */
 
         // In Source 2 (CS2), single packet with id=1, type=2
         let packet = SourceRconPacket::new(1, 2, command);
@@ -134,7 +136,7 @@ impl Source2RconClient {
 
         // Source 2 delivers the entire output (even 672KB cvarlist) in one response packet
         let response = self.receive_packet().await?;
-
+        /*
         log::trace!(
             target: "cbz_rcon::source2",
             "Received command response: id={}, type={}, body_len={}",
@@ -142,6 +144,7 @@ impl Source2RconClient {
             response.packet_type,
             response.body.len()
         );
+        */
 
         Ok(response.body)
     }
@@ -150,15 +153,15 @@ impl Source2RconClient {
         let stream = self.stream.as_mut().ok_or(RconError::NotConnected)?;
 
         let bytes = packet.to_bytes();
-
-        log::trace!(
-            target: "cbz_rcon::source2",
-            "Sending RCON packet: id={}, type={}, size={} bytes",
-            packet.id,
-            packet.packet_type,
-            bytes.len()
-        );
-
+        /*
+                log::trace!(
+                    target: "cbz_rcon::source2",
+                    "Sending RCON packet: id={}, type={}, size={} bytes",
+                    packet.id,
+                    packet.packet_type,
+                    bytes.len()
+                );
+        */
         timeout(Duration::from_secs(3), stream.write_all(&bytes))
             .await
             .map_err(|_| RconError::Timeout)?
@@ -179,12 +182,13 @@ impl Source2RconClient {
 
         let size = i32::from_le_bytes(size_buf);
 
+        /*
         log::trace!(
             target: "cbz_rcon::source2",
             "Received RCON packet header: size={}",
             size
         );
-
+        */
         if size < 10 {
             log::warn!(
                 target: "cbz_rcon::source2",
@@ -208,15 +212,15 @@ impl Source2RconClient {
         packet.extend_from_slice(&payload);
 
         let packet = SourceRconPacket::from_bytes(&packet)?;
-
-        log::trace!(
-            target: "cbz_rcon::source2",
-            "Parsed RCON packet: id={}, type={}, body_len={}",
-            packet.id,
-            packet.packet_type,
-            packet.body.len()
-        );
-
+        /*
+                log::trace!(
+                    target: "cbz_rcon::source2",
+                    "Parsed RCON packet: id={}, type={}, body_len={}",
+                    packet.id,
+                    packet.packet_type,
+                    packet.body.len()
+                );
+        */
         Ok(packet)
     }
 }

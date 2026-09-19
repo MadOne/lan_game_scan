@@ -49,6 +49,7 @@ impl SourceRconClient {
         loop {
             let response = self.receive_packet().await?;
 
+            /*
             log::trace!(
                 target: "cbz_rcon::source",
                 "Received authentication response: id={}, type={}, body_len={}",
@@ -56,7 +57,7 @@ impl SourceRconClient {
                 response.packet_type,
                 response.body.len()
             );
-
+            */
             if response.id == -1 {
                 log::warn!(
                     target: "cbz_rcon::source",
@@ -142,6 +143,7 @@ impl SourceRconClient {
         loop {
             let response = self.receive_packet().await?;
 
+            /*
             log::trace!(
                 target: "cbz_rcon::source",
                 "Received command packet: id={}, type={}, body_len={}",
@@ -149,7 +151,7 @@ impl SourceRconClient {
                 response.packet_type,
                 response.body.len()
             );
-
+            */
             if response.id == 1 {
                 // Command chunk
                 full_body.push_str(&response.body);
@@ -157,25 +159,29 @@ impl SourceRconClient {
                 // Check if this is the TF2 junk packet (starts with \x00\x01)
                 // If it is leftover junk, ignore it and continue reading!
                 if response.body.as_bytes().starts_with(&[0x00, 0x01]) {
+                    /*
                     log::trace!(
                         target: "cbz_rcon::source",
                         "Ignoring TF2 trailing junk packet"
                     );
+                    */
                     continue;
                 }
 
                 // If this was the real empty sentinel (body.is_empty()),
                 // on TF2 an extra junk packet may follow. We consume it if present.
                 // We do a fast non-blocking or short 10ms peek/read:
-                if let Ok(Ok(junk)) =
+                if let Ok(Ok(_junk)) =
                     timeout(Duration::from_millis(20), self.receive_packet()).await
                 {
+                    /*
                     log::trace!(
                         target: "cbz_rcon::source",
                         "Drained trailing TF2 packet: id={}, body_len={}",
                         junk.id,
                         junk.body.len()
                     );
+                    */
                 }
 
                 break;
@@ -189,7 +195,7 @@ impl SourceRconClient {
         let stream = self.stream.as_mut().ok_or(RconError::NotConnected)?;
 
         let bytes = packet.to_bytes();
-
+        /*
         log::trace!(
             target: "cbz_rcon::source",
             "Sending RCON packet: id={}, type={}, size={} bytes",
@@ -197,7 +203,7 @@ impl SourceRconClient {
             packet.packet_type,
             bytes.len()
         );
-
+        */
         timeout(Duration::from_secs(3), stream.write_all(&bytes))
             .await
             .map_err(|_| RconError::Timeout)?
@@ -218,12 +224,13 @@ impl SourceRconClient {
 
         let size = i32::from_le_bytes(size_buf);
 
+        /*
         log::trace!(
             target: "cbz_rcon::source",
             "Received RCON packet header: size={}",
             size
         );
-
+        */
         if size < 10 {
             log::warn!(
                 target: "cbz_rcon::source",
@@ -248,6 +255,7 @@ impl SourceRconClient {
 
         let packet = SourceRconPacket::from_bytes(&packet)?;
 
+        /*
         log::trace!(
             target: "cbz_rcon::source",
             "Parsed RCON packet: id={}, type={}, body_len={}",
@@ -255,7 +263,7 @@ impl SourceRconClient {
             packet.packet_type,
             packet.body.len()
         );
-
+        */
         Ok(packet)
     }
 }

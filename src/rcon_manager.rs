@@ -1,6 +1,6 @@
 use crate::custom_components::code::{RconSession, RconState};
 use dioxus::prelude::*;
-use lan_scan::ServerProtocol;
+use lan_scan::Game as LSGame;
 use live_log::game::Game;
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -17,29 +17,36 @@ impl RconManager {
         }
     }
 
-    pub async fn connect(
-        &mut self,
-        addr: SocketAddr,
-        password: String,
-        protocol: ServerProtocol,
-    ) -> bool {
+    pub async fn connect(&mut self, addr: SocketAddr, password: String, game: LSGame) -> bool {
         tracing::debug!("[RCON] connect requested for {}", addr);
         if self.sessions.read().contains_key(&addr) {
             tracing::debug!("[RCON] {} is already connected", addr);
             return false;
         }
-        let game = match protocol {
-            ServerProtocol::Source2 => Game::Cs2,
-            ServerProtocol::Source => Game::Css,
-            ServerProtocol::GoldSrc => Game::Cs16,
-            _ => {
-                tracing::error!(
-                    "Cannot create RCON session for {}: unsupported protocol {:?}",
-                    addr,
-                    protocol
-                );
-                return false;
+        let game = match game {
+            LSGame::Cs2 => Game::Cs2,
+            LSGame::Css => Game::Css,
+            LSGame::Cs16 => Game::Cs16,
+            LSGame::DoDS => Game::DoDS,
+            LSGame::TF2 => todo!(),
+            LSGame::HLDM2 => todo!(),
+            LSGame::CoD4 => todo!(),
+            LSGame::UT2k4 => todo!(),
+            LSGame::GenericSource(_) => todo!(),
+            LSGame::GenericSource2(_) => todo!(),
+            LSGame::GenericGoldSrc(_) => todo!(),
+            LSGame::GenericQuake3(_) => todo!(),
+            LSGame::GenericGameSpy(_) => todo!(),
+            LSGame::UNKNOWN => todo!(),
+            /*_ => {
+            tracing::error!(
+            "Cannot create RCON session for {}: unsupported protocol {:?}",
+            addr,
+            protocol
+            );
+            return false;
             }
+             */
         };
         if let Some(session) = RconSession::connect(addr, password, game).await {
             self.insert(addr, session);
@@ -105,10 +112,7 @@ impl RconManager {
         tracing::debug!("[RCON] RCON cleanup complete");
     }
 
-    pub async fn connect_multiple_servers(
-        &mut self,
-        targets: Vec<(SocketAddr, String, ServerProtocol)>,
-    ) {
+    pub async fn connect_multiple_servers(&mut self, targets: Vec<(SocketAddr, String, LSGame)>) {
         if targets.is_empty() {
             return;
         }

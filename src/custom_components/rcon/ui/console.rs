@@ -105,7 +105,7 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
 
     let player_max = server.scanned.players_max.unwrap_or(0);
 
-    let protocol = server.scanned.protocol;
+    let game = server.scanned.game.clone();
 
     let mut pw_input = use_signal(String::new);
 
@@ -185,11 +185,11 @@ pub fn RconConsole(addr: SocketAddr) -> Element {
                                 if password.is_empty() {
                                     return;
                                 }
-
+                                let game = game.clone();
                                 spawn(async move {
                                     state
                                         .rcon_manager
-                                        .connect(addr, password, protocol)
+                                        .connect(addr, password, game)
                                         .await;
                                 });
                             },

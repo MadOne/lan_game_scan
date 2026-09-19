@@ -40,7 +40,7 @@ pub fn cs2_build_patterns() -> Vec<LogPattern> {
         chat_console(),
         match_pause_enabled(),
         match_pause_disabled(),
-        server_cvar_dump(&blocks),
+        server_cvar_dump(),
         log_file(),
         map_loading(),
         server_started(),

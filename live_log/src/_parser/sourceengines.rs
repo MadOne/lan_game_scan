@@ -5,7 +5,7 @@ pub const SOURCE2_TS_BLOCK: &str =
 
 pub const GOLDSRC_TS_BLOCK: &str = r"(?:L\s+)?(?P<ts>\d{2}/\d{2}/\d{4} - \d{2}:\d{2}:\d{2}):\s*";
 
-pub const SOURCE_TS_BLOCK: &str = GOLDSRC_TS_BLOCK;
+pub const SOURCE_TS_BLOCK: &str = r"(?:RL\s+)?(?P<ts>\d{2}/\d{2}/\d{4} - \d{2}:\d{2}:\d{2}):\s*";
 
 pub const STEAMID3_BLOCK: &str = r"(?:\[[A-Z]:1:\d+\]|BOT|STEAM_ID_PENDING)";
 
@@ -417,7 +417,7 @@ pub mod cs2 {
         LogPattern {
             id: "PLAYER_SUICIDE",
             regex: Regex::new(&format!(
-                r#"^{} {} committed suicide with "(?P<weapon>.+)"$"#,
+                r#"^{}(?: {})? committed suicide with "(?P<weapon>.+)"$"#,
                 player, position
             ))
             .unwrap(),
@@ -1192,7 +1192,7 @@ pub mod cs2 {
         }
     }
 
-    pub fn server_cvar_dump(blocks: &LogPatternBlocks) -> LogPattern {
+    pub fn server_cvar_dump() -> LogPattern {
         LogPattern {
             id: "SERVER_CVAR_DUMP",
             regex: Regex::new(r#"(?s)^.*(?i:S)erver cvars start\n.*(?i:S)erver cvars end$"#)
@@ -1308,7 +1308,7 @@ pub mod cs16 {
     use regex::Regex;
 
     use crate::_parser::{
-        patterns::LogPattern,
+        patterns::{parse_player, LogPattern, LogPatternBlocks},
         types::{LogEvent, Player, Team},
     };
 
@@ -1346,6 +1346,139 @@ pub mod cs16 {
                     player.name,
                     msg
                 )
+            },
+        }
+    }
+    pub fn rcon16() -> LogPattern {
+        LogPattern {
+        id: "RCON16",
+        regex: Regex::new(
+            r#"^Rcon: "rcon (?P<challenge>\d+) (?P<password>[^ ]+) (?P<command>.*)" from "(?P<addr>[^"]+)"$"#
+        )
+        .unwrap(),
+
+        parse_fn: |_line, c| {
+            Some(LogEvent::Rcon {
+                addr: c.name("addr")?.as_str().to_string(),
+                command: c.name("command")?.as_str().to_string(),
+            })
+        },
+
+        pretty_fn: |event| {
+            let LogEvent::Rcon { addr, command } = event else {
+                return String::new();
+            };
+
+            format!(
+                "\x1b[38;5;244mrcon from\x1b[0m \"{}\"\x1b[38;5;244m: command\x1b[0m \"{}\"",
+                addr, command
+            )
+        },
+    }
+    }
+
+    pub fn player_team_switch16(blocks: &LogPatternBlocks) -> LogPattern {
+        let player = blocks.player("");
+
+        LogPattern {
+            id: "PLAYER_TEAM_SWITCH",
+            regex: Regex::new(&format!(r#"^{} joined team "(?P<new>[^"]+)"$"#, player)).unwrap(),
+
+            parse_fn: |_line, c| {
+                let mut player = parse_player(c, "")?;
+
+                let from = player.team;
+                player.team = Team::from_str(c.name("new")?.as_str());
+
+                Some(LogEvent::TeamSwitch { player, from })
+            },
+
+            pretty_fn: |event| {
+                let LogEvent::TeamSwitch { player, from } = event else {
+                    return String::new();
+                };
+
+                format!(
+                    "{} switched from {:?} to {:?}",
+                    player.name, from, player.team
+                )
+            },
+        }
+    }
+    pub fn round_triggered16() -> LogPattern {
+        LogPattern {
+        id: "ROUND_TRIGGERED",
+        regex: Regex::new(
+            r#"^(?:(?:World)|Team "(?P<team>[^"]+)") triggered "(?P<event>[^"]+)" \(CT "(?P<ct_score>\d+)"\) \(T "(?P<t_score>\d+)"\)$"#
+        )
+        .unwrap(),
+
+        parse_fn: |_line, c| {
+            Some(LogEvent::RoundTrigger {
+                team: c.name("team").map(|m| Team::from_str(m.as_str())),
+                event: c.name("event")?.as_str().to_string(),
+                ct_score: c.name("ct_score")?.as_str().parse().ok()?,
+                t_score: c.name("t_score")?.as_str().parse().ok()?,
+            })
+        },
+
+        pretty_fn: |event| {
+            let LogEvent::RoundTrigger {
+                team,
+                event,
+                ct_score,
+                t_score,
+            } = event
+            else {
+                return String::new();
+            };
+
+            let source = team
+                .map(|team| format!("{:?}", team))
+                .unwrap_or_else(|| "World".to_string());
+
+            format!(
+                "[ROUND] {} triggered {} — CT {} : T {}",
+                source, event, ct_score, t_score
+            )
+        },
+    }
+    }
+}
+
+pub mod dods {
+    use regex::Regex;
+
+    use crate::_parser::{
+        patterns::{parse_player, LogPattern, LogPatternBlocks},
+        types::LogEvent,
+    };
+
+    pub fn player_role_change(blocks: &LogPatternBlocks) -> LogPattern {
+        let player = blocks.player("");
+        let regex = format!(r##"^{} changed role to "(?P<role>[^"]+)"$"##, player);
+        log::debug!("DoD:S role regex: {}", regex);
+        LogPattern {
+            id: "PLAYER_ROLE_CHANGE",
+            regex: Regex::new(&format!(
+                r##"^{} changed role to "(?P<role>[^"]+)"$"##,
+                player
+            ))
+            .unwrap(),
+
+            parse_fn: |_line, c| {
+                Some(LogEvent::PlayerRoleChange {
+                    player: parse_player(c, "")?,
+                    role: c.name("role")?.as_str().to_string(),
+                })
+            },
+
+            pretty_fn: |event| {
+                let LogEvent::PlayerRoleChange { player, role } = event else {
+                    return String::new();
+                };
+
+                format!("{} changed role to {}", player.name, role)
             },
         }
     }

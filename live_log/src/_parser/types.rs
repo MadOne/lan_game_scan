@@ -1,6 +1,4 @@
 use std::fmt;
-
-use regex::Captures;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
@@ -20,30 +18,6 @@ pub struct Player {
     pub name: String,
     pub steamid: String,
     pub team: Team,
-}
-
-fn parse_player(c: &Captures, prefix: &str) -> Option<Player> {
-    let name = c.name(&format!("{prefix}name"))?.as_str().to_string();
-
-    let id = c
-        .name(&format!("{prefix}id"))?
-        .as_str()
-        .parse::<u16>()
-        .ok()?;
-
-    let steamid = c.name(&format!("{prefix}steamid"))?.as_str().to_string();
-
-    let team = c
-        .name(&format!("{prefix}team"))
-        .map(|m| Team::from_str(m.as_str()))
-        .unwrap_or(Team::Unknown);
-
-    Some(Player {
-        id,
-        name,
-        steamid,
-        team,
-    })
 }
 
 impl Team {
@@ -130,6 +104,8 @@ pub enum LogType {
     ServerStarted,
     FreezePeriod,
     Rcon,
+    RoundTrigger,
+    PlayerRoleChange,
     Ignored,
     Unknown,
 }
@@ -170,8 +146,10 @@ impl LogType {
             LogType::ServerStarted => "SERVER_STARTED",
             LogType::FreezePeriod => "ROUND_FREEZE",
             LogType::Rcon => "RCON",
+            LogType::RoundTrigger => "ROUND_TRIGGER",
             LogType::Ignored => "IGNORED",
             LogType::Unknown => "UNKNOWN",
+            LogType::PlayerRoleChange => "PLAYER_ROLE_CHANGE",
         }
     }
 
@@ -360,6 +338,16 @@ pub enum LogEvent {
         addr: String,
         command: String,
     },
+    RoundTrigger {
+        team: Option<Team>,
+        event: String,
+        ct_score: u16,
+        t_score: u16,
+    },
+    PlayerRoleChange {
+        player: Player,
+        role: String,
+    },
 
     ServerStarted,
 
@@ -417,6 +405,8 @@ impl LogEvent {
             LogEvent::Rcon { .. } => LogType::Rcon,
             LogEvent::Ignored => LogType::Ignored,
             LogEvent::Unknown => LogType::Unknown,
+            LogEvent::RoundTrigger { .. } => LogType::RoundTrigger,
+            LogEvent::PlayerRoleChange { .. } => LogType::PlayerRoleChange,
         }
     }
 }
@@ -525,6 +515,10 @@ impl fmt::Display for LogEvent {
             LogEvent::Unknown => "UNKNOWN",
 
             LogEvent::Rcon { .. } => "RCON",
+
+            LogEvent::RoundTrigger { .. } => "ROUND_TRIGGER",
+
+            LogEvent::PlayerRoleChange { .. } => "PLAYER_ROLE_CHANGE",
         };
 
         f.write_str(event_id)

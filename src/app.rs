@@ -104,7 +104,7 @@ pub fn App() -> Element {
                     Some((
                         *addr,
                         server.rcon_password.clone()?,
-                        server.scanned.protocol,
+                        server.scanned.game.clone(),
                     ))
                 })
                 .collect::<Vec<_>>()

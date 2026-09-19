@@ -197,7 +197,7 @@ fn ServerRow(
 
                 span {
                     class: "bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded text-[9px] font-bold uppercase",
-                    "{srv.scanned.game.clone().unwrap_or_else(|| \"---\".into())}"
+                    "{srv.scanned.game.clone()}"
                 }
             }
 
@@ -428,7 +428,7 @@ fn AddServerForm(on_close: EventHandler<()>) -> Element {
                         let scanned_server = ScannedServer {
                             socket_addr: addr,
                             hostname: Some("Custom Server".into()),
-                            game: None,
+                            game: lan_scan::Game::UNKNOWN,
                             map: None,
                             players: None,
                             players_max: None,
@@ -487,7 +487,7 @@ fn ServerDetails(srv: GameServer) -> Element {
     let mut state = use_context::<AppState>();
 
     let addr = srv.scanned.socket_addr;
-    let protocol = srv.scanned.protocol;
+    let game = srv.scanned.game;
 
     // ------------------------------------------------------------
     // LOCAL PASSWORD EDITING STATE
@@ -833,11 +833,11 @@ fn ServerDetails(srv: GameServer) -> Element {
                                             save_to_disk(servers);
                                         }
                                     });
-
+                                    let game = game.clone();
                                     spawn(async move {
                                         state
                                             .rcon_manager
-                                            .connect(addr, password, protocol)
+                                            .connect(addr, password, game)
                                             .await;
                                     });
                                 },

@@ -67,7 +67,8 @@ fn main() {
 
     let window = WindowBuilder::new()
         .with_title("LAN GAME SCAN")
-        .with_inner_size(LogicalSize::new(360.0, 800.0))
+        //.with_inner_size(LogicalSize::new(360.0, 800.0))
+        .with_inner_size(LogicalSize::new(1200.0, 800.0))
         .with_window_icon(icon);
 
     // -------------------------------------------------------------------------

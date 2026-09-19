@@ -7,7 +7,7 @@ use std::{collections::BTreeMap, net::SocketAddr};
 pub struct ScannedServer {
     pub socket_addr: SocketAddr,
     pub hostname: Option<String>,
-    pub game: Option<String>,
+    pub game: Game,
     pub map: Option<String>,
     pub players: Option<u8>,
     pub players_max: Option<u8>,
@@ -116,4 +116,45 @@ pub enum ParseResult {
 pub struct SplitBuffer {
     pub total: u8,
     pub packets: BTreeMap<u8, Vec<u8>>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum Game {
+    Cs2,
+    Css,
+    Cs16,
+    DoDS,
+    TF2,
+    HLDM2,
+    CoD4,
+    UT2k4,
+    GenericSource(String),
+    GenericSource2(String),
+    GenericGoldSrc(String),
+    GenericQuake3(String),
+    GenericGameSpy(String),
+    UNKNOWN,
+}
+use std::fmt;
+
+impl fmt::Display for Game {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Game::Cs2 => write!(f, "CS2"),
+            Game::Css => write!(f, "CS:S"),
+            Game::Cs16 => write!(f, "Cs1.6"),
+            Game::DoDS => write!(f, "DoD:S"),
+            Game::TF2 => write!(f, "TF2"),
+            Game::HLDM2 => write!(f, "HLDM2"),
+            Game::CoD4 => write!(f, "CoD4"),
+            Game::UT2k4 => write!(f, "UT2k4"),
+
+            Game::GenericSource(name) => write!(f, "{name}"),
+            Game::GenericSource2(name) => write!(f, "{name}"),
+            Game::GenericGoldSrc(name) => write!(f, "{name}"),
+            Game::GenericQuake3(name) => write!(f, "{name}"),
+            Game::GenericGameSpy(name) => write!(f, "{name}"),
+
+            Game::UNKNOWN => write!(f, "Unknown"),
+        }
+    }
 }

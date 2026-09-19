@@ -2,7 +2,9 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::net::SocketAddr;
 
 use crate::server::ScannedServer;
-use crate::{ParseResult, PendingQuery, PlayerInfo, ServerProtocol, ServerUpdate, SplitBuffer};
+use crate::{
+    Game, ParseResult, PendingQuery, PlayerInfo, ServerProtocol, ServerUpdate, SplitBuffer,
+};
 
 /// Main entry point called directly by scanner.rs upon receiving a UDP packet.
 pub fn parse(
@@ -168,7 +170,7 @@ fn parse_a2s_info(
     let _protocol = payload[0];
     payload = &payload[1..];
 
-    let mut name = read_cstring(&mut payload)?;
+    let name = read_cstring(&mut payload)?;
     let map = read_cstring(&mut payload)?;
     let _folder = read_cstring(&mut payload)?;
     let game = read_cstring(&mut payload)?;
@@ -189,19 +191,19 @@ fn parse_a2s_info(
     let bots = payload[2];
     payload = &payload[3..];
 
-    let server_type = payload[0];
+    let _server_type = payload[0];
     let _environment = payload[1];
     let visibility = payload[2];
 
-    let mut game_name = match server_id {
-        10 => "CS".to_string(),
-        20 => "TFC".to_string(),
-        30 => "DoD".to_string(),
-        240 => "CSS".to_string(),
-        300 => "DoD:S".to_string(),
-        440 => "TF2".to_string(),
-        730 => "CS2".to_string(),
-        _ => game,
+    let game_name = match server_id {
+        10 => Game::Cs16,
+        20 => Game::GenericGoldSrc("TFC".to_string()),
+        30 => Game::GenericGoldSrc("DoD".to_string()),
+        240 => Game::Css,
+        300 => Game::DoDS,
+        440 => Game::TF2,
+        730 => Game::Cs2,
+        _ => Game::GenericSource(game),
     };
 
     /*
@@ -216,11 +218,6 @@ fn parse_a2s_info(
     );
     */
 
-    if server_type == b'p' {
-        game_name.push_str(" TV");
-        name = format!("SourceTV - {name}");
-    }
-
     let protocol = match server_id {
         730 => ServerProtocol::Source2,
         id if id < 200 => ServerProtocol::GoldSrc,
@@ -230,7 +227,7 @@ fn parse_a2s_info(
     Some(ScannedServer {
         socket_addr: addr,
         hostname: Some(name),
-        game: Some(game_name),
+        game: game_name,
         map: Some(map),
         players: Some(players),
         players_max: Some(max_players),
@@ -265,7 +262,7 @@ fn parse_goldsrc_info(
     Some(ScannedServer {
         socket_addr: addr,
         hostname: Some(name),
-        game: Some(game),
+        game: Game::GenericGoldSrc(game),
         map: Some(map),
         players: Some(players),
         players_max: Some(max_players),
@@ -366,7 +363,12 @@ fn parse_quake3(payload: &[u8], addr: SocketAddr, ping: Option<u16>) -> Option<S
     Some(ServerUpdate::FullServer(ScannedServer {
         socket_addr: addr,
         hostname: newmap.get("sv_hostname").map(|s| s.to_string()),
-        game: newmap.get("gamename").map(|s| s.to_string()),
+        game: Game::GenericQuake3(
+            newmap
+                .get("gamename")
+                .map(|s| s.to_string())
+                .unwrap_or("".to_string()),
+        ),
         map: newmap.get("mapname").map(|s| s.to_string()),
         players: Some(players_count),
         players_max: newmap.get("sv_maxclients").and_then(|s| s.parse().ok()),
@@ -448,10 +450,12 @@ fn parse_gamespy(payload: &[u8], addr: SocketAddr, ping: Option<u16>) -> Option<
             .get("hostname")
             .or_else(|| map.get("servername"))
             .map(|s| s.to_string()),
-        game: map
-            .get("gamename")
-            .or_else(|| map.get("game"))
-            .map(|s| s.to_string()),
+        game: Game::GenericGameSpy(
+            map.get("gamename")
+                .or_else(|| map.get("game"))
+                .map(|s| s.to_string())
+                .unwrap_or(String::new()),
+        ),
         map: map
             .get("mapname")
             .or_else(|| map.get("map"))
