@@ -7,9 +7,9 @@ use crate::_parser::{
     },
 };
 
-pub const TS_BLOCK: &str = GOLDSRC_TS_BLOCK;
+pub const CS16_TS_BLOCK: &str = GOLDSRC_TS_BLOCK;
 pub fn cs16_build_patterns() -> Vec<LogPattern> {
-    let blocks = LogPatternBlocks::new(GOLDSRC_TS_BLOCK, STEAMID2_BLOCK);
+    let blocks = LogPatternBlocks::new(CS16_TS_BLOCK, STEAMID2_BLOCK);
     vec![
         player_damaged(&blocks),
         player_killed(&blocks),

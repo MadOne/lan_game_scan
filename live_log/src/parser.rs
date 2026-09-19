@@ -4,11 +4,14 @@
 
 use crate::{
     _parser::{
-        cs16::{cs16_build_patterns, TS_BLOCK as CS16_TS_BLOCK},
-        cs2::{cs2_build_patterns, TS_BLOCK as CS2_CS_BLOCK},
-        css::{css_build_patterns, TS_BLOCK as CSS_TS_BLOCK},
-        dods::{dods_build_patterns, TS_BLOCK as DODS_TS_BLOCK},
+        cs16::{cs16_build_patterns, CS16_TS_BLOCK},
+        cs2::{cs2_build_patterns, CS2_TS_BLOCK},
+        css::{css_build_patterns, CSS_TS_BLOCK},
+        dods::{dods_build_patterns, DODS_TS_BLOCK},
+        no_parsing::{no_build_patterns, NO_TS_BLOCK},
         patterns::LogPattern,
+        sourceengines::{GOLDSRC_TS_BLOCK, SOURCE2_TS_BLOCK, SOURCE_TS_BLOCK},
+        tf2::tf2_build_patterns,
         types::{LogEvent, LogType, ParsedLine},
     },
     game::Game,
@@ -31,15 +34,25 @@ impl LogParser {
             Game::GenericGoldSrc => cs16_build_patterns(),
             Game::GenericSource => css_build_patterns(),
             Game::GenericSource2 => cs2_build_patterns(),
+            Game::TF2 => tf2_build_patterns(),
+            Game::CoD4 => no_build_patterns(),
+            Game::UT2k4 => no_build_patterns(),
+            Game::GenericQuake3 => no_build_patterns(),
+            Game::GenericGameSpy => no_build_patterns(),
         };
         let ts_block = match game {
-            Game::Cs2 => CS2_CS_BLOCK,
+            Game::Cs2 => CS2_TS_BLOCK,
             Game::Css => CSS_TS_BLOCK,
             Game::Cs16 => CS16_TS_BLOCK,
             Game::DoDS => DODS_TS_BLOCK,
-            Game::GenericGoldSrc => CS16_TS_BLOCK,
-            Game::GenericSource => CSS_TS_BLOCK,
-            Game::GenericSource2 => CS2_CS_BLOCK,
+            Game::GenericGoldSrc => GOLDSRC_TS_BLOCK,
+            Game::GenericSource => SOURCE_TS_BLOCK,
+            Game::GenericSource2 => SOURCE2_TS_BLOCK,
+            Game::TF2 => SOURCE_TS_BLOCK,
+            Game::CoD4 => NO_TS_BLOCK,
+            Game::UT2k4 => NO_TS_BLOCK,
+            Game::GenericQuake3 => NO_TS_BLOCK,
+            Game::GenericGameSpy => NO_TS_BLOCK,
         };
 
         //let patterns = cs2_build_patterns();

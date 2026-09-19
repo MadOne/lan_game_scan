@@ -29,9 +29,7 @@ impl LiveLog {
         let mut log_receiver = match &game {
             Game::Cs2 => LogReceiver::Tcp(LogReceiverTcp::new().await?),
             Game::Css | Game::Cs16 | Game::DoDS => LogReceiver::Udp(LogReceiverUdp::new().await?),
-            Game::GenericGoldSrc => LogReceiver::Udp(LogReceiverUdp::new().await?),
-            Game::GenericSource => LogReceiver::Udp(LogReceiverUdp::new().await?),
-            Game::GenericSource2 => LogReceiver::Tcp(LogReceiverTcp::new().await?),
+            _ => LogReceiver::Udp(LogReceiverUdp::new().await?),
         };
 
         let port = log_receiver.port();

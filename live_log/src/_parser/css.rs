@@ -7,10 +7,10 @@ use crate::_parser::{
     },
 };
 
-pub const TS_BLOCK: &str = SOURCE_TS_BLOCK;
+pub const CSS_TS_BLOCK: &str = SOURCE_TS_BLOCK;
 
 pub fn css_build_patterns() -> Vec<LogPattern> {
-    let blocks = LogPatternBlocks::new(SOURCE_TS_BLOCK, STEAMID3_BLOCK);
+    let blocks = LogPatternBlocks::new(CSS_TS_BLOCK, STEAMID3_BLOCK);
     vec![
         player_damaged(&blocks),
         player_killed(&blocks),

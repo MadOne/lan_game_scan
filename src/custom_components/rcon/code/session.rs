@@ -449,6 +449,11 @@ impl RconSession {
             Game::GenericGoldSrc => format!("logaddress_add {} {}", receiver_ip, port),
             Game::GenericSource => format!("logaddress_add {}:{}", receiver_ip, port),
             Game::GenericSource2 => format!("logaddress_add_http \"{}\"", log_url),
+            Game::TF2 => format!("logaddress_add {}:{}", receiver_ip, port),
+            Game::CoD4 => format!(""),
+            Game::UT2k4 => format!(""),
+            Game::GenericQuake3 => format!(""),
+            Game::GenericGameSpy => format!(""),
         };
 
         if !self
@@ -578,6 +583,11 @@ impl RconSession {
             Game::GenericGoldSrc => ServerProtocol::GoldSrc,
             Game::GenericSource => ServerProtocol::Source,
             Game::GenericSource2 => ServerProtocol::Source2,
+            Game::TF2 => ServerProtocol::Source,
+            Game::CoD4 => ServerProtocol::Quake3,
+            Game::UT2k4 => ServerProtocol::GameSpy,
+            Game::GenericQuake3 => ServerProtocol::Quake3,
+            Game::GenericGameSpy => ServerProtocol::GameSpy,
         };
 
         let rcon_protocol = Self::rcon_protocol(protocol)?;
@@ -594,7 +604,17 @@ impl RconSession {
 
         session.push_log(RconLogEvent::Info("[RCON] Authenticated.".to_string()));
 
-        let has_live_log = matches!(game, Game::Cs2 | Game::Css | Game::Cs16 | Game::DoDS);
+        let has_live_log = matches!(
+            game,
+            Game::Cs2
+                | Game::Css
+                | Game::Cs16
+                | Game::DoDS
+                | Game::TF2
+                | Game::GenericGoldSrc
+                | Game::GenericSource
+                | Game::GenericSource2
+        );
 
         if has_live_log {
             if !session.start_live_log(game).await {

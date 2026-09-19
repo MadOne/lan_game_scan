@@ -19,6 +19,10 @@ pub enum Team {
     Spectator,
     Unassigned,
     Unknown,
+    Axis,
+    Allies,
+    Blue,
+    Red,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -44,6 +48,10 @@ impl RconPlayers {
             LiveLogTeam::Spectator => Team::Spectator,
             LiveLogTeam::Unassigned => Team::Unassigned,
             LiveLogTeam::Unknown => Team::Unknown,
+            LiveLogTeam::Allies => Team::Allies,
+            LiveLogTeam::Axis => Team::Axis,
+            LiveLogTeam::Blue => Team::Blue,
+            LiveLogTeam::Red => Team::Red,
         };
 
         match self.players.get_mut(&player.id) {

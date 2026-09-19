@@ -765,9 +765,13 @@ pub mod cs2 {
                 match winner_side {
                     Team::CT => "CT",
                     Team::Terrorist => "TERRORIST",
-                    Team::Spectator
-                    | Team::Unassigned
-                    | Team::Unknown => "UNKNOWN",
+                    Team::Spectator => "SPECTATOR",
+                    Team::Unassigned => "UNASSIGNED",
+                    Team::Unknown => "UNKNOWN",
+                    Team::Allies => "ALLIES",
+                    Team::Axis => "AXIS",
+                    Team::Blue => "BLUE",
+                    Team::Red => "RED",
                 },
                 reason,
                 ct_score,
@@ -879,6 +883,10 @@ pub mod cs2 {
                     Team::Spectator => "SPECTATOR",
                     Team::Unassigned => "UNASSIGNED",
                     Team::Unknown => "UNKNOWN",
+                    Team::Allies => "ALLIES",
+                    Team::Axis => "AXIS",
+                    Team::Blue => "BLUE",
+                    Team::Red => "RED",
                 };
 
                 format!(
@@ -915,6 +923,10 @@ pub mod cs2 {
                     Team::Spectator => "SPECTATOR",
                     Team::Unassigned => "UNASSIGNED",
                     Team::Unknown => "UNKNOWN",
+                    Team::Allies => "ALLIES",
+                    Team::Axis => "AXIS",
+                    Team::Blue => "BLUE",
+                    Team::Red => "RED",
                 };
 
                 format!("{}{} \x1b[0munset", team.color_code(), team_label)
@@ -986,6 +998,10 @@ pub mod cs2 {
                 Team::Spectator => "SPECTATOR",
                 Team::Unassigned => "UNASSIGNED",
                 Team::Unknown => "UNKNOWN",
+                Team::Allies => "ALLIES",
+                Team::Axis => "AXIS",
+                Team::Blue => "BLUE",
+                Team::Red => "RED",
             };
 
             format!(
@@ -1451,7 +1467,7 @@ pub mod dods {
 
     use crate::_parser::{
         patterns::{parse_player, LogPattern, LogPatternBlocks},
-        types::LogEvent,
+        types::{LogEvent, Team},
     };
 
     pub fn player_role_change(blocks: &LogPatternBlocks) -> LogPattern {
@@ -1479,6 +1495,158 @@ pub mod dods {
                 };
 
                 format!("{} changed role to {}", player.name, role)
+            },
+        }
+    }
+
+    pub fn point_captured_dods(blocks: &LogPatternBlocks) -> LogPattern {
+        let player = blocks.player("");
+
+        let regex = format!(
+            r##"^Team "(?P<capture_team>[^"]+)" triggered "captured_loc" \(flagindex "(?P<point_index>\d+)"\) \(flagname "(?P<point_name>[^"]+)"\) \(numplayers "(?P<numplayers>\d+)"\) \(player {}\)$"##,
+            player
+        );
+
+        log::debug!("DoD:S point captured regex: {}", regex);
+        let test_line = r#"Team "Axis" triggered "captured_loc" (flagindex "1") (flagname "Allied Street") (numplayers "1") (player "Mad_One<5><[U:1:55530433]><Axis>")"#;
+
+        log::debug!(
+            "DoD:S point captured test: {:?}",
+            Regex::new(&regex).unwrap().captures(test_line)
+        );
+
+        LogPattern {
+            id: "POINT_CAPTURED",
+
+            regex: Regex::new(&regex).unwrap(),
+
+            parse_fn: |_line, c| {
+                Some(LogEvent::PointCaptured {
+                    team: Team::from_str(c.name("capture_team")?.as_str()),
+                    point_index: c.name("point_index")?.as_str().parse().ok()?,
+                    point_name: c.name("point_name")?.as_str().to_string(),
+                    players: vec![parse_player(c, "")?],
+                })
+            },
+
+            pretty_fn: |event| {
+                let LogEvent::PointCaptured {
+                    team,
+                    point_name,
+                    players,
+                    ..
+                } = event
+                else {
+                    return String::new();
+                };
+
+                let players = players
+                    .iter()
+                    .map(|player| player.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+
+                if players.is_empty() {
+                    format!("{team} captured {point_name}")
+                } else {
+                    format!("{team} captured {point_name} by {players}")
+                }
+            },
+        }
+    }
+}
+
+pub mod tf2 {
+    use regex::Regex;
+
+    use crate::_parser::{
+        patterns::{parse_player, LogPattern, LogPatternBlocks},
+        types::{LogEvent, Team},
+    };
+
+    pub fn point_captured_tf2(blocks: &LogPatternBlocks) -> LogPattern {
+        let player = blocks.player("player1");
+
+        let regex = format!(
+            r##"^Team "(?P<team>[^"]+)" triggered "pointcaptured" \(cp "(?P<point_index>\d+)"\) \(cpname "(?P<point_name>[^"]+)"\) \(numcappers "(?P<num_cappers>\d+)"\) \(player1 {}\) \(position1 "(?P<position>[^"]+)"\)$"##,
+            player
+        );
+
+        log::debug!("TF2 point captured regex: {}", regex);
+
+        LogPattern {
+            id: "POINT_CAPTURED",
+
+            regex: Regex::new(&regex).unwrap(),
+
+            parse_fn: |_line, c| {
+                Some(LogEvent::PointCaptured {
+                    team: Team::from_str(c.name("team")?.as_str()),
+                    point_index: c.name("point_index")?.as_str().parse().ok()?,
+                    point_name: c.name("point_name")?.as_str().to_string(),
+                    players: vec![parse_player(c, "player1")?],
+                })
+            },
+
+            pretty_fn: |event| {
+                let LogEvent::PointCaptured {
+                    team,
+                    point_name,
+                    players,
+                    ..
+                } = event
+                else {
+                    return String::new();
+                };
+
+                let players = players
+                    .iter()
+                    .map(|player| player.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+
+                if players.is_empty() {
+                    format!("{team} captured {point_name}")
+                } else {
+                    format!("{team} captured {point_name} by {players}")
+                }
+            },
+        }
+    }
+
+    pub fn tick_score(_blocks: &LogPatternBlocks) -> LogPattern {
+        let regex = concat!(
+            r#"^Team "(?P<score_team>[^"]+)" triggered "tick_score" "#,
+            r#"\(score "(?P<score>\d+)"\) "#,
+            r#"\(totalscore "(?P<total_score>\d+)"\) "#,
+            r#"\(numplayers "(?P<num_players>\d+)"\)$"#
+        );
+
+        LogPattern {
+            id: "TICK_SCORE",
+            regex: Regex::new(regex).unwrap(),
+
+            parse_fn: |_line, c| {
+                Some(LogEvent::TickScore {
+                    team: Team::from_str(c.name("score_team")?.as_str()),
+                    score_delta: c.name("score")?.as_str().parse().ok()?,
+                    total_score: c.name("total_score")?.as_str().parse().ok()?,
+                    num_players: c.name("num_players")?.as_str().parse().ok()?,
+                })
+            },
+
+            pretty_fn: |event| {
+                let LogEvent::TickScore {
+                    team,
+                    score_delta,
+                    total_score,
+                    num_players,
+                } = event
+                else {
+                    return String::new();
+                };
+
+                format!("{team} scored {score_delta} ({total_score} total, {num_players} players)")
             },
         }
     }

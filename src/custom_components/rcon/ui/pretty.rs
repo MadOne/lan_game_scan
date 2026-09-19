@@ -904,6 +904,90 @@ pub fn pretty_log(event: &LogEvent) -> Element {
                 }
             }
         },
+        LogEvent::PointCaptured {
+            team,
+            point_index: _,
+            point_name,
+            players,
+        } => rsx! {
+            span {
+                class: "text-zinc-300",
+
+                span {
+                    class: team_text_class(team),
+                    "{team_label(team)}"
+                }
+
+                " "
+
+                span {
+                    class: "text-zinc-200",
+                    "captured"
+                }
+
+                " "
+
+                span {
+                    class: "text-zinc-400",
+                    "{point_name}"
+                }
+
+                if !players.is_empty() {
+                    " "
+
+                    span {
+                        class: "text-zinc-200",
+                        "by"
+                    }
+
+                    " "
+
+                    for (index, player) in players.iter().enumerate() {
+                        if index > 0 {
+                            ", "
+                        }
+
+                        span {
+                            class: team_text_class(&player.team),
+                            "{player.name}"
+                        }
+                    }
+                }
+            }
+        },
+        LogEvent::TickScore {
+            team,
+            score_delta,
+            total_score,
+            num_players,
+        } => rsx! {
+            span {
+                class: "text-zinc-300",
+
+                span {
+                    class: team_text_class(team),
+                    "{team}"
+                }
+
+                " "
+                span {
+                    class: "text-zinc-200",
+                    "scored"
+                }
+
+                " "
+                span {
+                    class: "text-zinc-100 font-medium",
+                    "+{score_delta}"
+                }
+
+                " "
+                span {
+                    class: "text-zinc-400",
+                    "({total_score} total, {num_players} players)"
+                }
+            }
+        },
     }
 }
 
@@ -1122,6 +1206,10 @@ fn team_text_class(team: &Team) -> &'static str {
         Team::Spectator => "text-zinc-400",
         Team::Unassigned => "text-zinc-500",
         Team::Unknown => "text-zinc-500",
+        Team::Allies => "text-green-400",
+        Team::Axis => "text-red-400",
+        Team::Blue => "text-blue-400",
+        Team::Red => "text-red-400",
     }
 }
 
@@ -1132,5 +1220,9 @@ fn team_label(team: &Team) -> &'static str {
         Team::Spectator => "SPECTATOR",
         Team::Unassigned => "UNASSIGNED",
         Team::Unknown => "UNKNOWN",
+        Team::Allies => "Allies",
+        Team::Axis => "Axis",
+        Team::Blue => "BLUE",
+        Team::Red => "RED",
     }
 }

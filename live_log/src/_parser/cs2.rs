@@ -1,11 +1,11 @@
 use crate::_parser::sourceengines::cs2::*;
 use crate::_parser::{patterns::*, sourceengines::*};
 
-pub const TS_BLOCK: &str = SOURCE2_TS_BLOCK;
+pub const CS2_TS_BLOCK: &str = SOURCE2_TS_BLOCK;
 pub const STEAMID_BLOCK: &str = STEAMID3_BLOCK;
 
 pub fn cs2_build_patterns() -> Vec<LogPattern> {
-    let blocks = LogPatternBlocks::new(TS_BLOCK, STEAMID_BLOCK);
+    let blocks = LogPatternBlocks::new(CS2_TS_BLOCK, STEAMID_BLOCK);
     vec![
         player_damaged(&blocks),
         player_killed(&blocks),

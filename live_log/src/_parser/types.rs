@@ -11,7 +11,30 @@ pub enum Team {
     Spectator,
     Unassigned,
     Unknown,
+    Allies,
+    Axis,
+    Blue,
+    Red,
 }
+
+impl fmt::Display for Team {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let label = match self {
+            Team::CT => "CT",
+            Team::Terrorist => "TERRORIST",
+            Team::Spectator => "SPECTATOR",
+            Team::Unassigned => "UNASSIGNED",
+            Team::Unknown => "UNKNOWN",
+            Team::Allies => "Allies",
+            Team::Axis => "Axis",
+            Team::Blue => "BLUE",
+            Team::Red => "RED",
+        };
+
+        f.write_str(label)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Player {
     pub id: u16,
@@ -29,6 +52,10 @@ impl Team {
             "TERRORIST" | "T" | "TERRORISTS" => Team::Terrorist,
             "SPECTATOR" => Team::Spectator,
             "UNASSIGNED" | "" => Team::Unassigned,
+            "AXIS" => Team::Axis,
+            "ALLIES" => Team::Allies,
+            "BLUE" => Team::Blue,
+            "RED" => Team::Red,
             _ => Team::Unknown,
         }
     }
@@ -106,6 +133,8 @@ pub enum LogType {
     Rcon,
     RoundTrigger,
     PlayerRoleChange,
+    PointCaptured,
+    TickScore,
     Ignored,
     Unknown,
 }
@@ -150,6 +179,8 @@ impl LogType {
             LogType::Ignored => "IGNORED",
             LogType::Unknown => "UNKNOWN",
             LogType::PlayerRoleChange => "PLAYER_ROLE_CHANGE",
+            LogType::PointCaptured => "POINT_CAPTURED",
+            LogType::TickScore => "TICK_SCORE",
         }
     }
 
@@ -349,6 +380,20 @@ pub enum LogEvent {
         role: String,
     },
 
+    PointCaptured {
+        team: Team,
+        point_index: u8,
+        point_name: String,
+        players: Vec<Player>,
+    },
+
+    TickScore {
+        team: Team,
+        score_delta: u16,
+        total_score: u16,
+        num_players: u16,
+    },
+
     ServerStarted,
 
     FreezePeriod,
@@ -407,6 +452,8 @@ impl LogEvent {
             LogEvent::Unknown => LogType::Unknown,
             LogEvent::RoundTrigger { .. } => LogType::RoundTrigger,
             LogEvent::PlayerRoleChange { .. } => LogType::PlayerRoleChange,
+            LogEvent::PointCaptured { .. } => LogType::PointCaptured,
+            LogEvent::TickScore { .. } => LogType::TickScore,
         }
     }
 }
@@ -519,6 +566,8 @@ impl fmt::Display for LogEvent {
             LogEvent::RoundTrigger { .. } => "ROUND_TRIGGER",
 
             LogEvent::PlayerRoleChange { .. } => "PLAYER_ROLE_CHANGE",
+            LogEvent::PointCaptured { .. } => "POINT_CAPTURED",
+            LogEvent::TickScore { .. } => "TICK_SCORE",
         };
 
         f.write_str(event_id)

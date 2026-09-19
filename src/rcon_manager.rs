@@ -28,7 +28,7 @@ impl RconManager {
             LSGame::Css => Game::Css,
             LSGame::Cs16 => Game::Cs16,
             LSGame::DoDS => Game::DoDS,
-            LSGame::TF2 => todo!(),
+            LSGame::TF2 => Game::TF2,
             LSGame::HLDM2 => todo!(),
             LSGame::CoD4 => todo!(),
             LSGame::UT2k4 => todo!(),

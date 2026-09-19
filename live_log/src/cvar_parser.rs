@@ -1,6 +1,6 @@
 use regex::Regex;
 
-use crate::_parser::sourceengines::{GOLDSRC_TS_BLOCK, SOURCE2_TS_BLOCK};
+use crate::_parser::sourceengines::{GOLDSRC_TS_BLOCK, SOURCE2_TS_BLOCK, SOURCE_TS_BLOCK};
 
 #[derive(Debug, Clone)]
 pub struct ServerCvars {
@@ -11,10 +11,12 @@ impl ServerCvars {
     pub fn parse(input: &str) -> Option<Self> {
         println!("---------Parser started!---------------");
         let source2_ts_re = Regex::new(&format!(r"(?m)^{}", SOURCE2_TS_BLOCK)).ok()?;
+        let source_ts_re = Regex::new(&format!(r"(?m)^{}", SOURCE_TS_BLOCK)).ok()?;
         let goldsrc_ts_re = Regex::new(&format!(r"(?m)^{}", GOLDSRC_TS_BLOCK)).ok()?;
 
         let cleaned = source2_ts_re.replace_all(input, "");
         let cleaned = goldsrc_ts_re.replace_all(&cleaned, "");
+        let cleaned = source_ts_re.replace_all(&cleaned, "");
 
         let cleaned = cleaned
             .lines()
