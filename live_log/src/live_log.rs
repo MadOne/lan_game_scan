@@ -7,9 +7,10 @@ use std::sync::Arc;
 
 use tokio::sync::mpsc::{self, Receiver};
 
+use crate::_parser::types::ParsedLine;
 use crate::game::Game;
 use crate::log_receiver::{tcp::LogReceiverTcp, udp::LogReceiverUdp, LogReceiver};
-use crate::parser::{LogParser, ParsedLine};
+use crate::parser::LogParser;
 
 #[derive(Debug)]
 pub struct LiveLog {
@@ -25,9 +26,8 @@ impl LiveLog {
         // Create the appropriate log receiver for the game.
         // ---------------------------------------------------------------------
 
-        let mut log_receiver = match game {
+        let mut log_receiver = match &game {
             Game::Cs2 => LogReceiver::Tcp(LogReceiverTcp::new().await?),
-
             Game::Css | Game::Cs16 => LogReceiver::Udp(LogReceiverUdp::new().await?),
         };
 
@@ -53,7 +53,7 @@ impl LiveLog {
 
         let (sender, receiver) = mpsc::channel::<ParsedLine>(1000);
 
-        let parser = Arc::new(LogParser::new());
+        let parser = Arc::new(LogParser::new(game));
 
         let processor_task = tokio::spawn({
             let parser = Arc::clone(&parser);

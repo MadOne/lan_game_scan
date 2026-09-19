@@ -5,8 +5,8 @@
 use regex::{Captures, Regex};
 
 use crate::{
+    _parser::types::{LogEvent, Player, Team},
     cvar_parser::ServerCvars,
-    parser::{LogEvent, Player, Team},
     round_stats::parse_round_stats,
 };
 
@@ -104,7 +104,7 @@ fn parse_player(c: &Captures, prefix: &str) -> Option<Player> {
 // -----------------------------------------------------------------------------
 // LOG PATTERN
 // -----------------------------------------------------------------------------
-
+/*
 pub struct LogPattern {
     pub id: &'static str,
     pub regex: Regex,
@@ -121,7 +121,7 @@ impl LogPattern {
         (self.pretty_fn)(event)
     }
 }
-
+*/
 // -----------------------------------------------------------------------------
 // BUILD PATTERNS
 // -----------------------------------------------------------------------------

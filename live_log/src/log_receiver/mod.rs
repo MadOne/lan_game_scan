@@ -1,3 +1,4 @@
+pub mod log_assembler;
 pub mod tcp;
 pub mod udp;
 

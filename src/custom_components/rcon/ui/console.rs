@@ -14,7 +14,7 @@ use crate::{
 };
 use cbz_rcon::RconStatus;
 use dioxus::prelude::*;
-use live_log::parser::LogType;
+use live_log::_parser::types::LogType;
 use std::{collections::HashSet, net::SocketAddr};
 
 #[component]

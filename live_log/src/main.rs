@@ -3,8 +3,8 @@
 // -----------------------------------------------------------------------------
 
 use live_log::{
+    _parser::types::{LogEvent, LogType},
     live_log::LiveLog,
-    parser::{LogEvent, LogType},
 };
 
 #[tokio::main]

@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 
 use live_log::{
-    parser::{LogEvent, Team},
+    _parser::types::{LogEvent, Team},
     round_stats::RSPlayer,
 };
 

@@ -2,7 +2,7 @@ use crate::custom_components::code::RconState;
 use crate::custom_components::rcon::code::RconLogEvent;
 use crate::custom_components::ui::pretty_log;
 use dioxus::prelude::*;
-use live_log::parser::LogType;
+use live_log::_parser::types::LogType;
 use std::collections::HashSet;
 
 #[component]

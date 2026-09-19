@@ -10,9 +10,9 @@ use dioxus::{
 };
 use lan_scan::ServerProtocol;
 use live_log::{
+    _parser::types::{LogEvent, ParsedLine, Team},
     game::Game,
     live_log::LiveLog,
-    parser::{LogEvent, ParsedLine, Team},
 };
 use tokio::sync::mpsc::{Receiver, Sender};
 
@@ -110,24 +110,20 @@ impl RconState {
                 break;
             };
 
-            tracing::debug!("calling update");
             self.update(update);
         }
     }
 
     pub fn update(&self, update: StateUpdate) {
-        tracing::debug!("update called");
         match update {
             StateUpdate::Log(rcon_log_event) => {
                 let mut logs = self.logs;
                 logs.write().push(rcon_log_event);
-                tracing::debug!("RconLogEvent catched and inserting in update");
             }
 
             StateUpdate::LogEvent(parsed) => {
                 let mut logs = self.logs;
                 logs.write().push(RconLogEvent::LiveLog(parsed.clone()));
-                tracing::debug!("LogEvent catched and inserting in update");
 
                 match &parsed.event {
                     LogEvent::Connection {
@@ -524,22 +520,16 @@ impl RconSession {
         client: Arc<tokio::sync::Mutex<RconClient>>,
         rcon_state: RconState,
     ) {
-        tracing::debug!("process_live_log: STARTED");
         let sender = rcon_state.sender.read().clone();
 
         while let Some(parsed) = receiver.recv().await {
-            tracing::debug!("process_live_log: received ParsedLine");
             if sender
                 .send(StateUpdate::LogEvent(parsed.clone()))
                 .await
                 .is_err()
             {
-                tracing::error!("process_live_log: RconState receiver dropped");
                 break;
             }
-            tracing::debug!("process_live_log: forwarded ParsedLine");
-
-            tracing::debug!("process_live_log: checking admin command");
             match is_command(&parsed.event) {
                 Some(AdminCommand::Pause) => {
                     let client = client.clone();
@@ -567,9 +557,7 @@ impl RconSession {
 
                 _ => {}
             }
-            tracing::debug!("process_live_log: processed ParsedLine");
         }
-        tracing::debug!("process_live_log: STOPPED");
     }
 
     // =========================================================================

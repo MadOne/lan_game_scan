@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use live_log::parser::LogType;
+use live_log::_parser::types::LogType;
 use std::collections::HashSet;
 
 #[component]

@@ -1,5 +1,7 @@
 use regex::Regex;
 
+use crate::_parser::sourceengines::{GOLDSRC_TS_BLOCK, SOURCE2_TS_BLOCK};
+
 #[derive(Debug, Clone)]
 pub struct ServerCvars {
     pub values: Vec<(String, String)>,
@@ -7,12 +9,22 @@ pub struct ServerCvars {
 
 impl ServerCvars {
     pub fn parse(input: &str) -> Option<Self> {
-        let ts_re =
-            Regex::new(r#"(?m)^(?:\[LOG\]\s+)?\d{2}/\d{2}/\d{4} - \d{2}:\d{2}:\d{2}\.\d{3} - "#)
-                .ok()?;
+        println!("---------Parser started!---------------");
+        let source2_ts_re = Regex::new(&format!(r"(?m)^{}", SOURCE2_TS_BLOCK)).ok()?;
+        let goldsrc_ts_re = Regex::new(&format!(r"(?m)^{}", GOLDSRC_TS_BLOCK)).ok()?;
 
-        let cleaned = ts_re.replace_all(input, "");
+        let cleaned = source2_ts_re.replace_all(input, "");
+        let cleaned = goldsrc_ts_re.replace_all(&cleaned, "");
 
+        let cleaned = cleaned
+            .lines()
+            .map(|line| line.strip_prefix("Server cvar ").unwrap_or(line))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        println!("CLEANED!");
+        println!("{}", &cleaned);
+        println!("END CLEANED!");
         let cvar_re = Regex::new(r#"^"(?P<name>[^"]+)" = "(?P<value>[^"]*)"$"#).ok()?;
 
         let mut values = Vec::new();
@@ -21,16 +33,16 @@ impl ServerCvars {
         for line in cleaned.lines() {
             let line = line.trim();
 
-            if line == "server cvars start" {
+            if line.to_ascii_lowercase() == "server cvars start" {
                 in_block = true;
                 continue;
             }
 
-            if line == "server cvars end" {
+            if line.to_ascii_lowercase() == "server cvars end" {
                 if !in_block {
                     return None;
                 }
-
+                println!("returning parsed cvarlist");
                 return Some(Self { values });
             }
 

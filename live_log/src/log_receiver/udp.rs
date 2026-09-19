@@ -1,11 +1,9 @@
-// -----------------------------------------------------------------------------
-// udp.rs
-// -----------------------------------------------------------------------------
-
 use std::io;
 
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc::{self, Receiver};
+
+use crate::log_receiver::log_assembler::LogAssembler;
 
 const UDP_BUFFER_SIZE: usize = 64 * 1024;
 
@@ -36,6 +34,7 @@ impl LogReceiverUdp {
 
         let task = tokio::spawn(async move {
             let mut buffer = vec![0u8; UDP_BUFFER_SIZE];
+            let mut assembler = LogAssembler::new();
 
             loop {
                 let (len, addr) = match socket.recv_from(&mut buffer).await {
@@ -82,13 +81,15 @@ impl LogReceiverUdp {
                         continue;
                     }
 
-                    if sender.send(line.to_string()).await.is_err() {
-                        log::debug!(
-                            target: "live_log",
-                            "Log receiver channel was dropped; stopping UDP receiver"
-                        );
+                    for message in assembler.process_line(line) {
+                        if sender.send(message).await.is_err() {
+                            log::debug!(
+                                target: "live_log",
+                                "Log receiver channel was dropped; stopping UDP receiver"
+                            );
 
-                        return;
+                            return;
+                        }
                     }
                 }
             }
@@ -101,7 +102,7 @@ impl LogReceiverUdp {
         })
     }
 
-    /// Returns the UDP port this LogReceiverUdp is listening on.
+    /// Returns the UDP port this LogLive instance is listening on.
     pub fn port(&self) -> u16 {
         self.port
     }

@@ -1,5 +1,5 @@
 use live_log::{
-    parser::{Player as LiveLogPlayer, Team as LiveLogTeam},
+    _parser::types::{Player as LiveLogPlayer, Team as LiveLogTeam},
     round_stats::RoundStats,
 };
 use std::collections::HashMap;
