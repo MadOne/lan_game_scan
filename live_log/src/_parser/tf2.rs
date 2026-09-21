@@ -9,11 +9,10 @@ use crate::_parser::{
     },
 };
 
-pub const DODS_TS_BLOCK: &str = SOURCE_TS_BLOCK;
+pub const TF2_TS_BLOCK: &str = SOURCE_TS_BLOCK;
 
 pub fn tf2_build_patterns() -> Vec<LogPattern> {
-    let blocks = LogPatternBlocks::new(DODS_TS_BLOCK, STEAMID3_BLOCK);
-    log::error!("Loading TF2 Parsing patterns");
+    let blocks = LogPatternBlocks::new(TF2_TS_BLOCK, STEAMID3_BLOCK);
     vec![
         player_damaged(&blocks),
         player_killed(&blocks),

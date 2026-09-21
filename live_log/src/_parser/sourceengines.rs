@@ -1473,7 +1473,6 @@ pub mod dods {
     pub fn player_role_change(blocks: &LogPatternBlocks) -> LogPattern {
         let player = blocks.player("");
         let regex = format!(r##"^{} changed role to "(?P<role>[^"]+)"$"##, player);
-        log::debug!("DoD:S role regex: {}", regex);
         LogPattern {
             id: "PLAYER_ROLE_CHANGE",
             regex: Regex::new(&format!(
@@ -1505,14 +1504,6 @@ pub mod dods {
         let regex = format!(
             r##"^Team "(?P<capture_team>[^"]+)" triggered "captured_loc" \(flagindex "(?P<point_index>\d+)"\) \(flagname "(?P<point_name>[^"]+)"\) \(numplayers "(?P<numplayers>\d+)"\) \(player {}\)$"##,
             player
-        );
-
-        log::debug!("DoD:S point captured regex: {}", regex);
-        let test_line = r#"Team "Axis" triggered "captured_loc" (flagindex "1") (flagname "Allied Street") (numplayers "1") (player "Mad_One<5><[U:1:55530433]><Axis>")"#;
-
-        log::debug!(
-            "DoD:S point captured test: {:?}",
-            Regex::new(&regex).unwrap().captures(test_line)
         );
 
         LogPattern {
@@ -1571,8 +1562,6 @@ pub mod tf2 {
             r##"^Team "(?P<team>[^"]+)" triggered "pointcaptured" \(cp "(?P<point_index>\d+)"\) \(cpname "(?P<point_name>[^"]+)"\) \(numcappers "(?P<num_cappers>\d+)"\) \(player1 {}\) \(position1 "(?P<position>[^"]+)"\)$"##,
             player
         );
-
-        log::debug!("TF2 point captured regex: {}", regex);
 
         LogPattern {
             id: "POINT_CAPTURED",

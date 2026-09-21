@@ -2,7 +2,7 @@
 // live_log.rs
 // -----------------------------------------------------------------------------
 
-use std::io;
+use std::io::{self, Error};
 use std::sync::Arc;
 
 use tokio::sync::mpsc::{self, Receiver};
@@ -26,10 +26,17 @@ impl LiveLog {
         // Create the appropriate log receiver for the game.
         // ---------------------------------------------------------------------
 
-        let mut log_receiver = match &game {
+        let mut log_receiver = match game {
             Game::Cs2 => LogReceiver::Tcp(LogReceiverTcp::new().await?),
-            Game::Css | Game::Cs16 | Game::DoDS => LogReceiver::Udp(LogReceiverUdp::new().await?),
-            _ => LogReceiver::Udp(LogReceiverUdp::new().await?),
+            Game::Css | Game::Cs16 | Game::DoDS | Game::TF2 => {
+                LogReceiver::Udp(LogReceiverUdp::new().await?)
+            }
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    format!("Live log is not supported for game: {game}"),
+                ));
+            }
         };
 
         let port = log_receiver.port();

@@ -13,7 +13,6 @@ pub const DODS_TS_BLOCK: &str = SOURCE_TS_BLOCK;
 
 pub fn dods_build_patterns() -> Vec<LogPattern> {
     let blocks = LogPatternBlocks::new(DODS_TS_BLOCK, STEAMID3_BLOCK);
-    log::error!("Loading DoDS Parsing patterns");
     vec![
         player_damaged(&blocks),
         player_killed(&blocks),

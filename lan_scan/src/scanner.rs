@@ -58,7 +58,7 @@ impl Scanner {
             ping_tracker: HashMap::new(),
             challenges: HashMap::new(),
             split_cache: HashMap::new(),
-            timeout: Duration::from_millis(1500),
+            timeout: Duration::from_millis(1000),
             max_retries: 2,
             broadcast: true,
         })
