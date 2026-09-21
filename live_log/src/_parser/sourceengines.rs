@@ -94,7 +94,7 @@ pub mod cs2 {
         LogPattern {
         id: "PLAYER_KILLED",
         regex: Regex::new(&format!(
-            r#"^{} {} killed (?:other (?P<vic_other>".+?"))?{} {} with "(?P<weapon>[^"]+)"(?P<hs> \(headshot\))?(?P<pen> \(penetrated\))?(?P<smoke> \(throughsmoke\))?(?P<air> \(attackerinair\))?$"#,
+            r#"^{}(?: {})? killed (?:other (?P<vic_other>".+?"))?{}(?: {})? with "(?P<weapon>[^"]+)"(?P<hs> \(headshot\))?(?P<pen> \(penetrated\))?(?P<smoke> \(throughsmoke\))?(?P<air> \(attackerinair\))?$"#,
             attacker,
             attacker_pos,
             victim,
